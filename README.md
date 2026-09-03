@@ -11,7 +11,11 @@
 [![Tests: pytest](https://img.shields.io/badge/tests-pytest%20%C2%B7%2072%20passed-brightgreen.svg)](#tests)
 [![OpenCV](https://img.shields.io/badge/built%20with-OpenCV%20%C2%B7%20NumPy%20%C2%B7%20SciPy%20%C2%B7%20Matplotlib-lightgrey.svg)](requirements.txt)
 
-The tool was written for a physics-tournament experiment at École Polytechnique (following the beer and foam levels in a 1000 mL cylinder during and after a pour), but nothing in it is specific to beer: any vertical graduated cylinder filmed by a fixed camera, with one or two horizontal interfaces, can be read.
+## Background
+
+This project was built for the **internal selection of the École Polytechnique team for the IPT** (International Physicists' Tournament). Each candidate had to present, in six minutes, an experimental study of one of the tournament problems, with a real uncertainty analysis. The problem chosen here was *Beer Foam*: how the volumes of beer and foam evolve in a 1000 mL graduated cylinder during and after a pour. Reading those two levels by eye on hours of video was not an option, so this tool reads the printed scale and the two interfaces automatically, frame by frame, and quantifies how much each reading can be trusted.
+
+Nothing in it is specific to beer: any vertical graduated cylinder filmed by a fixed camera, with one or two horizontal interfaces (liquid/foam, liquid/air, two immiscible liquids), can be read the same way.
 
 ## What it does
 
