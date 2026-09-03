@@ -1,4 +1,4 @@
-# cylinder-level-vision
+# liquid-foam-interface-volume-detector
 
 **Read liquid and foam levels in a graduated cylinder from a video, with a full uncertainty budget.**
 
@@ -65,8 +65,8 @@ The two interfaces always have opposite signs, so the code works on $S = \pm G_y
 ## Install
 
 ```bash
-git clone https://github.com/<you>/cylinder-level-vision.git
-cd cylinder-level-vision
+git clone https://github.com/Camedpc/liquid-foam-interface-volume-detector.git
+cd liquid-foam-interface-volume-detector
 pip install -r requirements.txt      # opencv-python, numpy, scipy, matplotlib
 pip install -e .                     # optional: import cylvision from anywhere
 ```
@@ -363,7 +363,7 @@ The report prints the geometry and the Markdown table above and writes `uncertai
 ## Project layout
 
 ```
-cylinder-level-vision/
+liquid-foam-interface-volume-detector/
 ├── cylvision/
 │   ├── io.py                  unicode-safe image IO, VideoSource, key codes
 │   ├── magnifier.py           ×8 loupe for pixel-accurate clicks

@@ -1,4 +1,4 @@
-# cylinder-level-vision — internal engineering spec
+# liquid-foam-interface-volume-detector — internal engineering spec
 
 This file is the contract shared by everyone working on the repo. It fixes
 the package layout, the public API of every module, naming conventions and
@@ -36,7 +36,7 @@ V_inf, collapse detection, heatmaps) is OUT OF SCOPE. Do not port it.
 ## 1. Repository layout
 
 ```
-cylinder-level-vision/
+liquid-foam-interface-volume-detector/
 ├── README.md                      end-user doc (English, very visual)
 ├── SPEC.md                        this file
 ├── LICENSE, pyproject.toml, requirements.txt, .gitignore

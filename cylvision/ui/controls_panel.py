@@ -42,7 +42,7 @@ import numpy as np
 from cylvision.detection.interfaces import POLARITIES, DetectionParams
 from cylvision.ui import theme
 
-PANEL_TITLE = "cylinder-level-vision  -  control panel"
+PANEL_TITLE = "liquid-foam-interface-volume-detector  -  control panel"
 
 POLARITY_LABELS: tuple[str, str] = ("lower darker", "lower brighter")
 CHANNEL_OPTIONS: tuple[str, ...] = ("gray", "G", "R", "B")

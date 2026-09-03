@@ -59,7 +59,7 @@ from cylvision.pipeline.batch import crop_frame
 from cylvision.ui import theme
 from cylvision.ui.controls_panel import ControlsPanel
 
-WINDOW_TITLE = "cylinder-level-vision  -  tuner"
+WINDOW_TITLE = "liquid-foam-interface-volume-detector  -  tuner"
 PANEL_LABELS_ANALYSIS: tuple[str, str, str] = ("Highlight", "Signed gradient", "Threshold mask")
 SPECIMEN_LABEL = "Specimen"
 MIN_SCALE = 0.05

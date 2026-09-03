@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cylinder-level-vision"
+name = "liquid-foam-interface-volume-detector"
 version = "1.0.0"
 description = "Computer-vision reading of graduated-cylinder scales and liquid/foam interface levels, with a full uncertainty budget."
 readme = "README.md"
