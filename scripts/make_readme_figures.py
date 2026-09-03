@@ -1,0 +1,872 @@
+#!/usr/bin/env python
+"""Regenerate every README image in ``docs/images`` from two real runs.
+
+Two runs are used: a back-lit **green screen** (polarity ``lower_brighter``)
+and a front-lit **black background** (polarity ``lower_darker``). Each run
+directory holds ``calib.json`` (new or legacy layout with ``crop.json``) and
+a ``params.json`` written by ``scripts/tune.py`` (``--green-params`` /
+``--black-params`` point elsewhere when the run directory holds a foreign
+``params.json``).
+
+Only public package functions are used; nothing interactive is opened
+except the Tk control panel when ``--panel-screenshot`` is given (the window
+is mapped for a fraction of a second and grabbed).
+
+The batch figures need the videos to be processed (a few minutes for the
+black run, which seeks one frame in 60 of a long recording). The rows are
+cached as CSV in ``--work-dir``; ``--skip-batch`` reuses the cache.
+
+``--only name,name`` regenerates a subset (names are the PNG stems).
+
+Example::
+
+    python scripts/make_readme_figures.py --green-run runs/green --green-video green.mp4 \\
+        --black-run runs/black --black-video black.mp4 --out docs/images --panel-screenshot
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import sys
+import tempfile
+import time
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Any
+
+import cv2
+import numpy as np
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from cylvision.calibration import (  # noqa: E402
+    Calibration,
+    build_click_prompts,
+    build_model_fn,
+    render_click_overlay,
+    render_verification_figure,
+)
+from cylvision.detection import (  # noqa: E402
+    DetectionParams,
+    InterfaceResult,
+    annotate_interfaces,
+    detect_from_crop,
+    make_gradient_panel,
+    make_info_strip,
+    make_label_strip,
+    make_threshold_panel,
+)
+from cylvision.detection.panels import SEP  # noqa: E402
+from cylvision.io import VideoSource, imread_unicode  # noqa: E402
+from cylvision.pipeline import (  # noqa: E402
+    RunDir,
+    crop_frame,
+    plot_levels,
+    process_video,
+    read_csv,
+    summarize_rows,
+    write_csv,
+)
+from cylvision.ui import theme  # noqa: E402
+from cylvision.ui.tuner import compose_canvas  # noqa: E402
+from cylvision.uncertainty import (  # noqa: E402
+    build_budget,
+    geometry_from_calibration,
+    method_uncertainty_from_result,
+    render_budget_figure,
+    render_curvature_figure,
+    render_cylinder_schematic,
+    summarize_method_uncertainty,
+)
+
+MAX_WIDTH = 1600
+MAX_BYTES = 1_500_000
+SCREEN = (1920, 1080)
+FONT = cv2.FONT_HERSHEY_SIMPLEX
+
+# Frames of the two runs used throughout (see the README captions).
+GREEN_FRAMES = {"empty": 8, "pouring": 30, "best": 108, "later": 300}
+BLACK_FRAMES = {"early": 1032, "best": 2472, "mid": 6972, "late": 20972}
+BLACK_BATCH = (972, 40000, 60)      # start, end, step
+
+
+# ---------------------------------------------------------------------------
+# Run context
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RunCtx:
+    """Everything the figures need from one run (frames are cached)."""
+
+    name: str
+    run: RunDir
+    calib: Calibration
+    params: DetectionParams
+    model_fn: Callable[..., Any]
+    video: VideoSource
+    time_scale: float = 1.0
+    _cache: dict[int, np.ndarray] = field(default_factory=dict, repr=False)
+
+    def frame(self, idx: int) -> np.ndarray:
+        if idx not in self._cache:
+            fr = self.video.frame(int(idx))
+            if fr is None:
+                raise OSError(f"cannot read frame {idx} of {self.video.path.name}")
+            self._cache[idx] = fr
+        return self._cache[idx]
+
+    def t_sec(self, idx: int) -> float:
+        return idx * self.time_scale / self.video.fps
+
+    def detect(self, idx: int, params: DetectionParams | None = None
+               ) -> tuple[np.ndarray, InterfaceResult, np.ndarray]:
+        crop = crop_frame(self.frame(idx), self.calib)
+        result, Gy = detect_from_crop(crop, params or self.params)
+        return crop, result, Gy
+
+
+def fill_from_calibration(params: DetectionParams, calib: Calibration) -> DetectionParams:
+    """``y_bottom`` / ``cx`` from the calibration when the params leave them unset."""
+    p = DetectionParams.from_dict(params.to_dict())
+    if p.y_bottom is None:
+        p.y_bottom = int(calib.y_bottom)
+    if p.cx is None:
+        p.cx = int(calib.cx())
+    return p
+
+
+def load_ctx(name: str, run_dir: Path, video_path: Path, params_path: Path | None,
+             time_scale: float) -> RunCtx:
+    run = RunDir(run_dir)
+    if not run.has_calibration():
+        sys.exit(f"{name}: no calib.json in {run.root}")
+    calib = run.load_calibration()
+    p_path = params_path if params_path is not None else run.params_path
+    if not p_path.exists():
+        sys.exit(f"{name}: params file not found: {p_path}")
+    raw = json.loads(p_path.read_text(encoding="utf-8"))
+    params = fill_from_calibration(DetectionParams.from_dict(raw), calib)
+    video = VideoSource(video_path)
+    print(f"{name}: {video}  crop x [{calib.x_left}, {calib.x_right}]  polarity {params.polarity}")
+    return RunCtx(name=name, run=run, calib=calib, params=params, model_fn=build_model_fn(calib),
+                  video=video, time_scale=time_scale)
+
+
+# ---------------------------------------------------------------------------
+# Image helpers
+# ---------------------------------------------------------------------------
+
+def resize_to_width(img: np.ndarray, width: int) -> np.ndarray:
+    h, w = img.shape[:2]
+    if w == width:
+        return img
+    s = width / w
+    interp = cv2.INTER_AREA if s < 1.0 else cv2.INTER_CUBIC
+    return cv2.resize(img, (int(width), max(1, int(round(h * s)))), interpolation=interp)
+
+
+def resize_to_height(img: np.ndarray, height: int) -> np.ndarray:
+    h, w = img.shape[:2]
+    if h == height:
+        return img
+    s = height / h
+    interp = cv2.INTER_AREA if s < 1.0 else cv2.INTER_CUBIC
+    return cv2.resize(img, (max(1, int(round(w * s))), int(height)), interpolation=interp)
+
+
+def scale_img(img: np.ndarray, s: float) -> np.ndarray:
+    """Uniform scale with the same rounding as ``annotate_interfaces(zoom=s)``."""
+    h, w = img.shape[:2]
+    tw, th = max(1, int(round(w * s))), max(1, int(round(h * s)))
+    if tw == w and th == h:
+        return img
+    interp = cv2.INTER_AREA if s < 1.0 else cv2.INTER_CUBIC
+    return cv2.resize(img, (tw, th), interpolation=interp)
+
+
+def caption_strip(width: int, lines: Sequence[str], colors: Sequence[tuple[int, int, int]] | None = None,
+                  *, font_scale: float = 0.55, line_h: int = 24, pad: int = 6) -> np.ndarray:
+    """Dark strip with one or more lines of text (theme colours)."""
+    strip = np.empty((pad * 2 + line_h * len(lines), int(width), 3), dtype=np.uint8)
+    strip[:] = theme.STRIP_BG_BGR
+    y = pad + 17
+    for i, text in enumerate(lines):
+        color = colors[i] if colors is not None and i < len(colors) else theme.STRIP_TEXT_BGR
+        cv2.putText(strip, text, (8, y), FONT, font_scale, color, 1, cv2.LINE_AA)
+        y += line_h
+    return strip
+
+
+def pad_height(img: np.ndarray, h: int) -> np.ndarray:
+    if img.shape[0] >= h:
+        return img
+    pad = np.empty((h - img.shape[0], img.shape[1], 3), dtype=np.uint8)
+    pad[:] = theme.BG_BGR
+    return np.concatenate([img, pad], axis=0)
+
+
+def side_by_side(imgs: Sequence[np.ndarray], labels: Sequence[str | Sequence[str]], *,
+                 gap: int = 6) -> np.ndarray:
+    """Labelled N-up composite: caption strip over each image, dark separators."""
+    cols = []
+    for img, lab in zip(imgs, labels):
+        lines = [lab] if isinstance(lab, str) else list(lab)
+        strip = caption_strip(img.shape[1], lines)
+        cols.append(np.concatenate([strip, img], axis=0))
+    h = max(c.shape[0] for c in cols)
+    parts: list[np.ndarray] = []
+    for i, c in enumerate(cols):
+        if i:
+            sep = np.empty((h, gap, 3), dtype=np.uint8)
+            sep[:] = theme.SEPARATOR_BGR
+            parts.append(sep)
+        parts.append(pad_height(c, h))
+    return np.concatenate(parts, axis=1)
+
+
+def stack(imgs: Sequence[np.ndarray], *, gap: int = SEP) -> np.ndarray:
+    w = max(i.shape[1] for i in imgs)
+    parts: list[np.ndarray] = []
+    for i, img in enumerate(imgs):
+        if img.shape[1] < w:
+            pad = np.empty((img.shape[0], w - img.shape[1], 3), dtype=np.uint8)
+            pad[:] = theme.BG_BGR
+            img = np.concatenate([img, pad], axis=1)
+        if i:
+            sep = np.empty((gap, w, 3), dtype=np.uint8)
+            sep[:] = theme.SEPARATOR_BGR
+            parts.append(sep)
+        parts.append(img)
+    return np.concatenate(parts, axis=0)
+
+
+def text_panel(width: int, lines: Sequence[tuple[str, tuple[int, int, int]]], *, height: int | None = None,
+               font_scale: float = 0.6, line_h: int = 30) -> np.ndarray:
+    """Dark panel with coloured text lines (used next to a zoomed image)."""
+    h = height if height is not None else 20 + line_h * len(lines)
+    panel = np.empty((h, int(width), 3), dtype=np.uint8)
+    panel[:] = theme.BG_BGR
+    y = 34
+    for text, color in lines:
+        cv2.putText(panel, text, (16, y), FONT, font_scale, color, 1, cv2.LINE_AA)
+        y += line_h
+    return panel
+
+
+def draw_mask_lines(img: np.ndarray, params: DetectionParams, s: float) -> None:
+    H, W = img.shape[:2]
+    for y in (params.y_top if params.y_top > 0 else None, params.y_bottom):
+        if y is None:
+            continue
+        yy = int(round((y + 0.5) * s))
+        if 0 <= yy < H:
+            cv2.line(img, (0, yy), (W - 1, yy), theme.MASK_BGR, 1, cv2.LINE_AA)
+
+
+def analysis_panels(crop: np.ndarray, result: InterfaceResult, params: DetectionParams, *,
+                    scale: float = 1.0, rows: tuple[int, int] | None = None,
+                    with_labels: bool = True) -> np.ndarray:
+    """``[highlight | signed gradient | threshold mask]`` at ``scale``, rows ``[r0, r1)`` of the crop.
+
+    The overlays are drawn after scaling so the dots stay crisp.
+    """
+    p_high = annotate_interfaces(crop, result, params, zoom=scale, show_extras=False)
+    p_grad = scale_img(make_gradient_panel(result.S), scale)
+    p_mask = scale_img(make_threshold_panel(result.S, params), scale)
+    draw_mask_lines(p_grad, params, scale)
+    draw_mask_lines(p_mask, params, scale)
+    panels = [p_high, p_grad, p_mask]
+    if rows is not None:
+        r0 = max(0, int(round(rows[0] * scale)))
+        r1 = min(p_high.shape[0], int(round(rows[1] * scale)))
+        panels = [p[r0:r1] for p in panels]
+    h, w = panels[0].shape[:2]
+    sep = np.empty((h, SEP, 3), dtype=np.uint8)
+    sep[:] = theme.SEPARATOR_BGR
+    body = np.concatenate([panels[0], sep, panels[1], sep, panels[2]], axis=1)
+    if not with_labels:
+        return body
+    return np.concatenate([make_label_strip(body.shape[1], [w, w, w]), body], axis=0)
+
+
+def fmt(v: float | None, spec: str = "{:.1f}") -> str:
+    return "n/a" if v is None or not math.isfinite(v) else spec.format(v)
+
+
+# ---------------------------------------------------------------------------
+# Output + manifest
+# ---------------------------------------------------------------------------
+
+class Manifest:
+    """Collects ``README_figures.json`` entries and writes the PNGs."""
+
+    def __init__(self, out_dir: Path) -> None:
+        self.out_dir = out_dir
+        self.path = out_dir / "README_figures.json"
+        self.entries: dict[str, dict[str, Any]] = {}
+        if self.path.exists():
+            try:
+                for e in json.loads(self.path.read_text(encoding="utf-8")).get("figures", []):
+                    self.entries[e["file"]] = e
+            except (ValueError, KeyError, TypeError):
+                pass
+
+    def save_png(self, name: str, img: np.ndarray, description: str, source: dict[str, Any], *,
+                 max_w: int = MAX_WIDTH) -> Path:
+        out = self.out_dir / f"{name}.png"
+        if img.shape[1] > max_w:
+            img = resize_to_width(img, max_w)
+        buf = _encode(img)
+        while buf.nbytes > MAX_BYTES and img.shape[1] > 700:
+            img = resize_to_width(img, int(img.shape[1] * 0.9))
+            buf = _encode(img)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        buf.tofile(str(out))
+        self.entries[out.name] = {
+            "file": out.name,
+            "size_px": [int(img.shape[1]), int(img.shape[0])],
+            "bytes": int(buf.nbytes),
+            "description": description,
+            "source": source,
+        }
+        print(f"  {out.name:<34s} {img.shape[1]:>5d} x {img.shape[0]:<5d} {buf.nbytes / 1e6:5.2f} MB")
+        return out
+
+    def save_figure_png(self, name: str, tmp_png: Path, description: str, source: dict[str, Any],
+                        *, max_w: int = MAX_WIDTH) -> Path:
+        """Re-encode a matplotlib PNG to the README size limits."""
+        img = imread_unicode(tmp_png)
+        if img is None:
+            raise OSError(f"cannot read back {tmp_png}")
+        out = self.save_png(name, img, description, source, max_w=max_w)
+        if tmp_png.resolve() != out.resolve():
+            tmp_png.unlink(missing_ok=True)
+        return out
+
+    def write(self) -> None:
+        data = {
+            "note": "Every image comes from a real run; sources give the run, the frame and the parameters.",
+            "figures": [self.entries[k] for k in sorted(self.entries)],
+        }
+        self.path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"written: {self.path}")
+
+
+def _encode(img: np.ndarray) -> np.ndarray:
+    ok, buf = cv2.imencode(".png", img, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+    if not ok:
+        raise RuntimeError("PNG encoding failed")
+    return buf
+
+
+def source_of(ctx: RunCtx, frame: int | None, params: DetectionParams | None = None,
+              **extra: Any) -> dict[str, Any]:
+    d: dict[str, Any] = {"run": ctx.name, "video": ctx.video.path.name, "run_dir": ctx.run.root.name}
+    if frame is not None:
+        d["frame"] = int(frame)
+        d["t_sec"] = round(ctx.t_sec(frame), 2)
+    d["params"] = (params or ctx.params).to_dict()
+    d.update(extra)
+    return d
+
+
+# ---------------------------------------------------------------------------
+# Batches (cached in the work dir)
+# ---------------------------------------------------------------------------
+
+def run_batches(g: RunCtx, b: RunCtx, work_dir: Path, skip: bool) -> dict[str, list[dict]]:
+    work_dir.mkdir(parents=True, exist_ok=True)
+    out: dict[str, list[dict]] = {}
+    specs = {
+        "green_step1": (g, 0, g.video.n_frames - 1, 1),
+        "green_step10": (g, 0, g.video.n_frames - 1, 10),
+        "black_step60": (b, BLACK_BATCH[0], min(BLACK_BATCH[1], b.video.n_frames - 1), BLACK_BATCH[2]),
+    }
+    for key, (ctx, start, end, step) in specs.items():
+        csv_path = work_dir / f"{key}.csv"
+        if skip:
+            if csv_path.exists():
+                out[key] = read_csv(csv_path)
+                print(f"batch {key}: {len(out[key])} rows read from {csv_path}")
+            else:
+                print(f"batch {key}: no cache at {csv_path} (skipped)")
+            continue
+        t0 = time.perf_counter()
+        print(f"batch {key}: {ctx.video.path.name} frames {start}..{end} step {step}")
+        rows = process_video(ctx.video, ctx.calib, ctx.params, ctx.model_fn, start=start, end=end,
+                             frame_step=step, progress=True, time_scale=ctx.time_scale)
+        write_csv(rows, csv_path)
+        out[key] = rows
+        summ = summarize_rows(rows)
+        print(f"  done in {time.perf_counter() - t0:.0f} s -> {csv_path}")
+        for k in ("V_lower_mL", "V_total_mL", "V_foam_mL"):
+            r = summ.get(k)
+            if r:
+                print(f"    {k:<11s} min {r['min']:7.1f}  max {r['max']:7.1f}  last {r['last']:7.1f} mL")
+        s = summ["u_method_lower_mL"]
+        print(f"    u_method lower: median {s['median']:.2f}  mean {s['mean']:.2f}  p95 {s['p95']:.2f} mL (n={s['n']})")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Figures
+# ---------------------------------------------------------------------------
+
+def fig_hero(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
+    idx = GREEN_FRAMES["best"]
+    canvas = compose_canvas(g.frame(idx), g.calib, g.params, g.model_fn, show_specimen=True, inline=True,
+                            screen_size=SCREEN, frame_idx=idx, t_sec=g.t_sec(idx), fps=g.video.fps)
+    m.save_png("hero", canvas, "Tuner canvas (specimen + highlight + signed gradient + threshold mask "
+               "+ info strip) on the green-screen run, inline layout, 1920x1080 screen.",
+               source_of(g, idx, layout="inline, specimen on"))
+
+
+def fig_setup(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
+    m.save_png("setup_black_background", resize_to_height(b.frame(BLACK_FRAMES["best"]), 700),
+               "Raw frame of the front-lit black-background setup (bright foam over dark beer).",
+               source_of(b, BLACK_FRAMES["best"], params=None) | {"params": None})
+    m.save_png("setup_green_screen", resize_to_height(g.frame(GREEN_FRAMES["best"]), 700),
+               "Raw frame of the back-lit green-screen setup (dark foam, translucent beer).",
+               source_of(g, GREEN_FRAMES["best"]) | {"params": None})
+
+
+def polarity_figure(ctx: RunCtx, idx: int, scale: float) -> np.ndarray:
+    crop, result, _ = ctx.detect(idx)
+    p = ctx.params
+    rows = (max(0, p.y_top - 10), min(crop.shape[0], (p.y_bottom or crop.shape[0]) + 10))
+    body = analysis_panels(crop, result, p, scale=scale, rows=rows)
+    info = make_info_strip(body.shape[1], result, p, ctx.model_fn, idx, ctx.t_sec(idx), None)
+    return stack([body, info])
+
+
+def fig_polarity(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
+    m.save_png("polarity_lower_darker", polarity_figure(b, BLACK_FRAMES["best"], 1.0),
+               "Analysis panels + info strip on the black-background run with polarity lower_darker: "
+               "the lower (beer/foam) interface is a negative Gy peak, the upper (foam/air) a positive one.",
+               source_of(b, BLACK_FRAMES["best"]))
+    m.save_png("polarity_lower_brighter", polarity_figure(g, GREEN_FRAMES["best"], 0.65),
+               "Analysis panels + info strip on the green-screen run with polarity lower_brighter: "
+               "the beer transmits the back light, the foam scatters it, the signs are flipped.",
+               source_of(g, GREEN_FRAMES["best"]))
+
+
+def fig_polarity_wrong(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
+    idx = GREEN_FRAMES["best"]
+    crop, ref, _ = g.detect(idx)
+    rows = window(ref, crop.shape[0], 260, 300)
+    imgs, labels = [], []
+    for pol, tag in (("lower_darker", "WRONG for a back-lit green screen"), ("lower_brighter", "correct")):
+        p = replace(g.params, polarity=pol)
+        _, res, _ = g.detect(idx, p)
+        imgs.append(analysis_panels(crop, res, p, scale=0.62, rows=rows))
+        labels.append([f"polarity = {pol}   ({tag})", *detection_lines(res, g.model_fn)])
+    m.save_png("polarity_wrong", side_by_side(imgs, labels),
+               "Same green-screen frame processed with the wrong polarity (left) and the right one (right): "
+               "with lower_darker the detector locks on the wrong sign of the gradient.",
+               source_of(g, idx, variants=["lower_darker", "lower_brighter"]))
+
+
+def window(ref: InterfaceResult, H: int, top_pad: int | None, bot_pad: int | None) -> tuple[int, int]:
+    """Rows ``[y_upper - top_pad, y_lower + bot_pad)`` of the reference detection.
+
+    ``None`` extends the window to the top (resp. bottom) of the crop; without
+    any detection the whole crop is returned.
+    """
+    yu = ref.y_upper if ref.y_upper is not None else ref.y_lower
+    yl = ref.y_lower if ref.y_lower is not None else ref.y_upper
+    if yu is None or yl is None:
+        return 0, H
+    r0 = 0 if top_pad is None else int(max(0, yu - top_pad))
+    r1 = H if bot_pad is None else int(min(H, yl + bot_pad))
+    return r0, r1
+
+
+def detection_lines(res: InterfaceResult, model_fn: Callable[..., Any]) -> list[str]:
+    """Two caption lines: the lower and the upper interface (row, columns, volume)."""
+    def V(y: float | None) -> str:
+        return "n/a" if y is None else f"{float(np.asarray(model_fn(np.array([y]))).ravel()[0]):.0f} mL"
+    return [f"lower: y = {fmt(res.y_lower)} px   {res.n_lower} cols   V = {V(res.y_lower)}",
+            f"upper: y = {fmt(res.y_upper)} px   {res.n_upper} cols   V = {V(res.y_upper)}"]
+
+
+def param_composite(ctx: RunCtx, idx: int, name: str, values: Sequence[Any], *, scale: float,
+                    rows: tuple[int, int], notes: Sequence[str] | None = None,
+                    setter: Callable[[DetectionParams, Any], DetectionParams] | None = None
+                    ) -> tuple[np.ndarray, list[dict[str, Any]]]:
+    """N-up composite of the analysis panels for several values of one parameter."""
+    crop = crop_frame(ctx.frame(idx), ctx.calib)
+    imgs, labels, variants = [], [], []
+    for i, val in enumerate(values):
+        p = setter(ctx.params, val) if setter else replace(ctx.params, **{name: val})
+        _, res, _ = ctx.detect(idx, p)
+        imgs.append(analysis_panels(crop, res, p, scale=scale, rows=rows))
+        note = f"   ({notes[i]})" if notes and i < len(notes) and notes[i] else ""
+        labels.append([f"{name} = {val}{note}", *detection_lines(res, ctx.model_fn)])
+        variants.append({name: val, "y_lower": res.y_lower, "y_upper": res.y_upper,
+                         "n_lower": res.n_lower, "n_upper": res.n_upper})
+    return side_by_side(imgs, labels), variants
+
+
+def fig_params(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
+    gi, bi = GREEN_FRAMES["best"], BLACK_FRAMES["best"]
+    gp = GREEN_FRAMES["pouring"]
+    g_crop, g_ref, _ = g.detect(gi)
+    b_crop, b_ref, _ = b.detect(bi)
+    _, gp_ref, _ = g.detect(gp)
+    Hg, Hb = g_crop.shape[0], b_crop.shape[0]
+    g_win = window(g_ref, Hg, 230, 230)
+    b_win = window(b_ref, Hb, 110, 110)
+    W_g = g_crop.shape[1]
+
+    specs: list[tuple[str, RunCtx, int, str, Sequence[Any], float, tuple[int, int], Sequence[str] | None, str]] = [
+        ("param_T_lower", g, gi, "T_lower", [4, 16], 0.62, g_win,
+         ["too low: weak gradients pass", "clean"],
+         "Threshold of the lower (liquid/foam) interface: too low validates weak gradients in every "
+         "column (false positives in the mask), the tuned value keeps only the true interface."),
+        ("param_T_upper", b, bi, "T_upper", [4, 14], 0.8, b_win,
+         ["too low: bottom-up search stops on noise", "clean"],
+         "Threshold of the upper (foam/air) interface: the bottom-up search from the lower interface stops "
+         "on the first row above threshold, so a low value catches bubble edges right above the beer."),
+        ("param_r_lower", g, gi, "r_lower", [10, 64, W_g // 2], 0.5, g_win,
+         ["narrow band", "tuned", "whole crop width"],
+         "Half-width of the averaging band of the lower interface: a narrow band uses few columns, "
+         "the whole width includes the walls where refraction and the meniscus bend the interface."),
+        ("param_blur_sigma", g, gi, "blur_sigma", [0.5, 5.7], 0.62, g_win,
+         ["almost no smoothing: bubble edges win", "tuned"],
+         "Gaussian smoothing: with a small sigma every bubble edge competes with the interface and the "
+         "per-column detections scatter; the tuned value spreads the interface over a few rows."),
+        ("param_blur_h", b, bi, "blur_h", [0, 38], 0.8, b_win,
+         ["off: foam texture in the gradient", "on: texture washed out"],
+         "Horizontal box filter: it averages every row along x, keeping the horizontal interfaces and "
+         "washing out the vertical bubble texture of the foam."),
+        ("param_min_h_upper", g, gp, "min_h_upper", [0, 3], 0.62, window(gp_ref, Hg, 220, 60),
+         ["off: bubble edges 1-2 px tall accepted", "on: blobs < 3 px tall rejected"],
+         "Connected-component height filter of the upper interface, during the pour (foam full of large "
+         "bubbles): without it the bottom-up search stops on thin bubble edges inside the foam and the "
+         "upper interface drops by more than 100 px; requiring blobs at least 3 rows tall keeps the foam top."),
+        ("param_y_top", b, bi, "y_top", [200, 34], 0.8, window(b_ref, Hb, None, 110),
+         ["too low: the foam top itself is masked", "tuned: rows above 34 ignored"],
+         "Top gradient mask: rows above y_top are zeroed (magenta line). The glass rim of both runs lies "
+         "outside the frame, so the mask is shown the other way round: a y_top below the foam top masks "
+         "the true upper interface and the detector reports nothing above threshold."),
+        ("param_y_bottom", b, bi, "y_bottom", [Hb - 1, 800, 1031], 0.7, window(b_ref, Hb, 110, None),
+         ["no mask", "too high: true interface masked", "tuned"],
+         "Bottom gradient mask: rows below y_bottom are zeroed (magenta line). Without it the bright edge of "
+         "the base shows up as a teal blob in the threshold mask (an upper-interface candidate, harmless here "
+         "but picked whenever the lower interface is lost); a y_bottom above the beer/foam interface masks "
+         "the true lower interface."),
+        ("param_cx", g, gi, "cx", [40, g.params.cx], 0.62, g_win,
+         ["axis shifted to the left wall", "axis on the cylinder centre"],
+         "Axis column inside the crop: the band is centred on cx, so a wrong cx samples the interface "
+         "near a wall (meniscus, refraction) instead of the centre."),
+        ("param_channel", g, gi, "channel", ["gray", "G", "R"], 0.5, g_win,
+         ["", "most contrast on a green screen", "almost no signal"],
+         "Grey level used by the detector: the green channel carries the contrast of a green screen, "
+         "the red channel almost nothing."),
+    ]
+    for name, ctx, idx, pname, values, scale, rows, notes, desc in specs:
+        img, variants = param_composite(ctx, idx, pname, values, scale=scale, rows=rows, notes=notes)
+        m.save_png(name, img, desc, source_of(ctx, idx, variants=variants, rows_window=list(rows)))
+
+
+def fig_calibration_clicks(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
+    idx = GREEN_FRAMES["empty"]
+    frame = g.frame(idx)
+    H = frame.shape[0]
+    c = g.calib
+    prompts = build_click_prompts(c.cylinder.graduations_ml)
+    x_mid = (c.x_left + c.x_right) // 2
+    order = np.argsort(c.graduations_ml)
+    grads = [(float(c.graduations_ml[i]), int(round(c.graduations_px_x[i])), int(round(c.graduations_px_y[i])))
+             for i in order]
+    pts: list[tuple[int, int] | None] = [(int(c.x_left), H // 2), (int(c.x_right), H // 2),
+                                         (x_mid, int(c.y_top)), (x_mid, int(c.y_bottom))]
+    pts += [(x, y) for _V, x, y in grads[:3]]
+    cursor = (grads[3][1], grads[3][2])
+    img = render_click_overlay(frame, prompts, pts, cursor, with_magnifier=True)
+    m.save_png("calibration_clicks", resize_to_width(img, 900),
+               "Calibration click window after the 4 ROI clicks (left / right edges, y_top, y_bottom) and "
+               "the first 3 graduations; the cursor and the x8 loupe sit on the next graduation (400 mL).",
+               source_of(g, idx) | {"params": None, "placed": {"roi": pts[:4], "graduations_ml": [v for v, _, _ in grads[:3]]},
+                                    "cursor": list(cursor)})
+
+
+def fig_calibration_check(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
+    for ctx, idx, name in ((g, GREEN_FRAMES["empty"], "calibration_check_green"),
+                           (b, BLACK_FRAMES["early"], "calibration_check_black")):
+        tmp = m.out_dir / f"{name}.png"
+        render_verification_figure(ctx.frame(idx), ctx.calib, tmp)
+        m.save_figure_png(name, tmp,
+                          f"Calibration verification figure of the {ctx.name} run: annotated frame with the "
+                          "predicted graduation lines, crop band, V(y) of the three models and residuals.",
+                          source_of(ctx, idx) | {"params": None, "recommended_model": ctx.calib.recommended_model})
+
+
+def fig_control_panel(g: RunCtx, b: RunCtx, m: Manifest, panel_screenshot: bool = False, **_: Any) -> None:
+    if not panel_screenshot:
+        print("  control_panel.png skipped (pass --panel-screenshot)")
+        return
+    from cylvision.ui.controls_panel import ControlsPanel
+
+    idx = GREEN_FRAMES["best"]
+    H = g.frame(idx).shape[0]
+    panel = ControlsPanel(params=g.params, H=H, W_crop=g.calib.crop_width(), n_frames=g.video.n_frames,
+                          init_frame_idx=idx, include_sampling=True, show_batch_button=True,
+                          two_columns=True, frame_step=1)
+    img = None
+    try:
+        try:
+            panel.root.attributes("-topmost", True)
+            panel.root.lift()
+        except Exception:
+            pass
+        for _ in range(12):
+            panel.update()
+            time.sleep(0.05)
+        img = panel.grab_screenshot()
+    finally:
+        panel.destroy()
+    if img is None:
+        print("  control_panel.png: screenshot unavailable (PIL missing or window not mapped)")
+        return
+    m.save_png("control_panel", img,
+               "The Tk control panel (two-column layout) loaded with the green-screen parameters: VIEW, "
+               "CYLINDER, GRADIENT and SAMPLING sections, Run batch / Abort buttons, hotkeys and summary.",
+               source_of(g, idx, layout="two columns"))
+
+
+def fig_tuner_stacked(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
+    idx = BLACK_FRAMES["best"]
+    canvas = compose_canvas(b.frame(idx), b.calib, b.params, b.model_fn, show_specimen=True, inline=False,
+                            screen_size=SCREEN, frame_idx=idx, t_sec=b.t_sec(idx), fps=b.video.fps)
+    m.save_png("tuner_canvas_stacked", canvas,
+               "Tuner canvas in the stacked layout (specimen + highlight on the first row, signed gradient + "
+               "threshold mask on the second) on the black-background run.",
+               source_of(b, idx, layout="stacked, specimen on"))
+
+
+def fig_frame_step(g: RunCtx, b: RunCtx, m: Manifest, batches: dict[str, list[dict]] | None = None,
+                   **_: Any) -> None:
+    if not batches or "green_step1" not in batches or "green_step10" not in batches:
+        print("  frame_step_illustration.png skipped (no green batch rows)")
+        return
+    fig = Figure(figsize=(10, 4.2), dpi=150, facecolor="#ffffff")
+    FigureCanvasAgg(fig)
+    ax = fig.add_subplot(111)
+    for key, label, color, style in (("green_step1", "frame_step = 1 (every frame)", "#2a78d6", "-"),
+                                     ("green_step10", "frame_step = 10 (1 frame in 10)", "#eb6834", "o")):
+        rows = batches[key]
+        t = np.array([r["t_sec"] for r in rows], dtype=float)
+        V = np.array([r["V_lower_mL"] for r in rows], dtype=float)
+        ok = np.isfinite(t) & np.isfinite(V)
+        if style == "-":
+            ax.plot(t[ok], V[ok], color=color, lw=1.4, label=label)
+        else:
+            ax.plot(t[ok], V[ok], ls="", marker="o", ms=3.2, mfc="none", mec=color, mew=1.0, label=label)
+    ax.set_xlabel("time (s)")
+    ax.set_ylabel("V_lower  (mL)")
+    ax.set_title("Sub-sampling the video does not change the level curve", loc="left", fontsize=11)
+    ax.grid(True, color="#e4e4e4")
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    ax.legend(frameon=False, fontsize=9)
+    fig.tight_layout()
+    tmp = m.out_dir / "frame_step_illustration.png"
+    fig.savefig(tmp, dpi=150, facecolor="#ffffff")
+    m.save_figure_png("frame_step_illustration", tmp,
+                      "V_lower(t) of the green-screen batch at frame_step 1 (line) and 10 (circles): the "
+                      "sub-sampled curve sits on the full one.",
+                      source_of(g, None, batch="frames 0..%d step 1 and step 10, time_scale %g" %
+                                (g.video.n_frames - 1, g.time_scale)))
+
+
+def budget_of(ctx: RunCtx, rows: list[dict] | None) -> Any:
+    geom = geometry_from_calibration(ctx.calib)
+    return geom, build_budget(ctx.calib, geom, ctx.params, ctx.model_fn, rows or None, r_px=ctx.params.r_lower)
+
+
+def fig_batch(g: RunCtx, b: RunCtx, m: Manifest, batches: dict[str, list[dict]] | None = None,
+              **_: Any) -> None:
+    for ctx, key, name, rng in ((g, "green_step1", "batch_figure_green",
+                                 f"frames 0..{g.video.n_frames - 1} step 1 (1 frame = {g.time_scale:g} source frames)"),
+                                (b, "black_step60", "batch_figure_black",
+                                 f"frames {BLACK_BATCH[0]}..{BLACK_BATCH[1]} step {BLACK_BATCH[2]}")):
+        if not batches or key not in batches:
+            print(f"  {name}.png skipped (no batch rows)")
+            continue
+        rows = batches[key]
+        geom, budget = budget_of(ctx, rows)
+        summ = summarize_rows(rows)
+        tmp = m.out_dir / f"{name}.png"
+        plot_levels(rows, title=f"{ctx.video.path.name}  -  {rng}", out_png=tmp, budget=budget)
+        m.save_figure_png(name, tmp,
+                          f"V_lower(t), V_total(t), V_foam(t) of the {ctx.name} batch with the ±u_total bands "
+                          "of the uncertainty budget (calibration, pixel, curvature, method); u_total is about "
+                          "3 mL, so the bands are barely wider than the lines at this scale.",
+                          source_of(ctx, None, batch=rng, summary=summ,
+                                    geometry=geom.summary(), budget_notes=budget.notes))
+
+
+def fig_uncertainty(g: RunCtx, b: RunCtx, m: Manifest, batches: dict[str, list[dict]] | None = None,
+                    **_: Any) -> None:
+    idx = GREEN_FRAMES["best"]
+    rows = batches.get("green_step1") if batches else None
+    geom, budget = budget_of(g, rows)
+    r_px = int(g.params.r_lower)
+    grads = [float(v) for v in g.calib.graduations_ml]
+    src = source_of(g, idx, r_px=r_px, geometry=geom.summary(), budget_notes=budget.notes)
+
+    tmp = m.out_dir / "uncertainty_schematic.png"
+    render_cylinder_schematic(geom, g.calib, r_px, tmp)
+    m.save_figure_png("uncertainty_schematic", tmp,
+                      "Why a horizontal graduation circle has a vertical extent in the image: top view, side "
+                      "view and image-plane ellipse with the Delta bracket (green-screen geometry).", src)
+    tmp = m.out_dir / "uncertainty_curvature.png"
+    render_curvature_figure(g.frame(idx), g.calib, geom, r_px, g.model_fn, tmp)
+    m.save_figure_png("uncertainty_curvature", tmp,
+                      "Projected graduation circles on the green-screen frame, u_curvature(V) with the Delta "
+                      "wedge and the camera horizon, top and side views.", src)
+    tmp = m.out_dir / "uncertainty_budget.png"
+    render_budget_figure(budget, (min(grads), max(grads)), tmp)
+    m.save_figure_png("uncertainty_budget", tmp,
+                      "Uncertainty budget of the green-screen run: the four contributions and the quadrature "
+                      "total vs V, and their share of the variance.",
+                      src | {"table": budget.table([100, 250, 500, 750, 1000])})
+
+
+def fig_uncertainty_method(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
+    idx = GREEN_FRAMES["best"]
+    crop, res, _ = g.detect(idx)
+    mu = method_uncertainty_from_result(res, g.model_fn, which="lower")
+    zoom = 3.0
+    img = annotate_interfaces(crop, res, g.params, zoom=zoom, show_extras=False,
+                              y_bounds=(mu["y_up"], mu["y_lo"]))
+    half = 60
+    r0 = int(max(0, (mu["y_up"] - half) * zoom))
+    r1 = int(min(img.shape[0], (mu["y_lo"] + half) * zoom))
+    zoomed = img[r0:r1]
+    lines = [
+        ("Method uncertainty, lower interface", theme.TEXT_BGR),
+        (f"frame {idx}, t = {g.t_sec(idx):.1f} s, band r = {g.params.r_lower} px", theme.SUBTEXT_BGR),
+        ("", theme.TEXT_BGR),
+        (f"y_mean  = {mu['y_mean']:.2f} px   ->  V = {mu['V_mean']:.1f} mL", theme.LOWER_BGR),
+        (f"y_up    = {mu['y_up']:.0f} px   ->  V = {mu['V_up']:.1f} mL   (yellow)", theme.BOUND_UPPER_BGR),
+        (f"y_lo    = {mu['y_lo']:.0f} px   ->  V = {mu['V_lo']:.1f} mL   (cyan)", theme.BOUND_LOWER_BGR),
+        (f"columns kept: {mu['n_kept']} / {res.n_lower}   (|V - V_mean| <= 7 mL)", theme.SUBTEXT_BGR),
+        ("", theme.TEXT_BGR),
+        (f"range   = |V_up - V_lo| = {mu['range_ml']:.2f} mL", theme.TEXT_BGR),
+        (f"u_method = range / (2 sqrt 3) = {mu['u_ml']:.2f} mL", theme.TEXT_BGR),
+        ("", theme.TEXT_BGR),
+        ("red dots: per-column detections, red line: mean", theme.SUBTEXT_BGR),
+    ]
+    panel = text_panel(640, lines, height=max(zoomed.shape[0], 20 + 30 * len(lines)), font_scale=0.55)
+    out = side_by_side([zoomed, panel], [f"lower interface, zoom x{zoom:g}  (rows {r0 / zoom:.0f}..{r1 / zoom:.0f})",
+                                         "per-frame empirical spread"])
+    m.save_png("uncertainty_method", out,
+               "Zoom on the lower interface of the green-screen frame with the per-column detections, the mean "
+               "line and the dashed empirical bounds, next to the numbers of the method uncertainty.",
+               source_of(g, idx, method={k: (None if isinstance(v, float) and not math.isfinite(v) else v)
+                                         for k, v in mu.items()}))
+
+
+FIGURES: dict[str, tuple[Callable[..., None], tuple[str, ...]]] = {
+    "hero": (fig_hero, ("hero",)),
+    "setup": (fig_setup, ("setup_black_background", "setup_green_screen")),
+    "polarity": (fig_polarity, ("polarity_lower_darker", "polarity_lower_brighter")),
+    "polarity_wrong": (fig_polarity_wrong, ("polarity_wrong",)),
+    "calibration_clicks": (fig_calibration_clicks, ("calibration_clicks",)),
+    "calibration_check": (fig_calibration_check, ("calibration_check_green", "calibration_check_black")),
+    "control_panel": (fig_control_panel, ("control_panel",)),
+    "tuner_stacked": (fig_tuner_stacked, ("tuner_canvas_stacked",)),
+    "params": (fig_params, ("param_T_lower", "param_T_upper", "param_r_lower", "param_blur_sigma",
+                            "param_blur_h", "param_min_h_upper", "param_y_top", "param_y_bottom",
+                            "param_cx", "param_channel")),
+    "frame_step": (fig_frame_step, ("frame_step_illustration",)),
+    "batch": (fig_batch, ("batch_figure_green", "batch_figure_black")),
+    "uncertainty": (fig_uncertainty, ("uncertainty_schematic", "uncertainty_curvature", "uncertainty_budget")),
+    "uncertainty_method": (fig_uncertainty_method, ("uncertainty_method",)),
+}
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def _configure_stdout() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--green-run", type=Path, required=True, help="run dir of the green-screen video")
+    p.add_argument("--green-video", type=Path, required=True, help="green-screen video")
+    p.add_argument("--black-run", type=Path, required=True, help="run dir of the black-background video")
+    p.add_argument("--black-video", type=Path, required=True, help="black-background video")
+    p.add_argument("--green-params", type=Path, default=None,
+                   help="params.json of the green run (default: <green-run>/params.json)")
+    p.add_argument("--black-params", type=Path, default=None,
+                   help="params.json of the black run (default: <black-run>/params.json)")
+    p.add_argument("--out", type=Path, default=REPO_ROOT / "docs" / "images", help="output folder")
+    p.add_argument("--work-dir", type=Path, default=Path(tempfile.gettempdir()) / "cylvision_readme_runs",
+                   help="where the batch CSVs are cached (never inside docs/images)")
+    p.add_argument("--frame-scale-green", type=float, default=60.0,
+                   help="source frames per frame of the green video (pre-subsampled), default 60")
+    p.add_argument("--skip-batch", action="store_true", help="reuse the cached batch CSVs instead of processing")
+    p.add_argument("--panel-screenshot", action="store_true",
+                   help="open the Tk control panel briefly and grab control_panel.png")
+    p.add_argument("--only", type=str, default=None,
+                   help="comma-separated figure groups or PNG stems to regenerate (default: all)")
+    return p.parse_args(argv)
+
+
+def selected_groups(only: str | None) -> list[str]:
+    if not only:
+        return list(FIGURES)
+    wanted = {w.strip() for w in only.replace(";", ",").split(",") if w.strip()}
+    groups = []
+    for name, (_fn, files) in FIGURES.items():
+        if name in wanted or any(f in wanted for f in files):
+            groups.append(name)
+    unknown = wanted - set(FIGURES) - {f for _fn, files in FIGURES.values() for f in files}
+    if unknown:
+        sys.exit(f"unknown figure name(s): {sorted(unknown)}")
+    return groups
+
+
+def main(argv: list[str] | None = None) -> int:
+    _configure_stdout()
+    args = parse_args(argv)
+    groups = selected_groups(args.only)
+    out_dir = args.out
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest = Manifest(out_dir)
+
+    g = load_ctx("green", args.green_run, args.green_video, args.green_params, args.frame_scale_green)
+    b = load_ctx("black", args.black_run, args.black_video, args.black_params, 1.0)
+    try:
+        batches: dict[str, list[dict]] = {}
+        if any(x in groups for x in ("frame_step", "batch", "uncertainty")):
+            batches = run_batches(g, b, args.work_dir, args.skip_batch)
+        for name in groups:
+            fn, _files = FIGURES[name]
+            print(f"[{name}]")
+            fn(g, b, manifest, batches=batches, panel_screenshot=args.panel_screenshot)
+    finally:
+        g.video.close()
+        b.video.close()
+    manifest.write()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
