@@ -23,11 +23,18 @@ panels; ``make_specimen_panel`` draws the full frame with inward arrows
 at the cylinder walls and scientific-style braces labelling the foam and
 the liquid.
 
-Crisp overlays: ``annotate_interfaces(..., zoom=k)`` first upsamples the
-image with ``INTER_CUBIC`` and THEN draws anti-aliased strokes at the
-higher resolution, so the strokes stay thin and sharp instead of sharing
-the pixelisation of a nearest-neighbour zoom. Pixel centres map to
-``(x + 0.5) * zoom``.
+Crisp overlays: ``annotate_interfaces(..., zoom=k)`` and
+``make_specimen_panel(..., zoom=k)`` first resize the image and THEN draw
+anti-aliased strokes at the output resolution, so the strokes keep their
+pixel size instead of sharing the scaling of the photograph. Pixel centres
+map to ``(x + 0.5) * zoom``.
+
+"Filled zones + volume labels": the mean interface lines are thick
+(``theme.MEAN_LINE_W`` px, dark outline), the foam band between the two
+interfaces and the liquid below the lower one receive a semi-transparent
+wash (:func:`wash_zones`, ``show_wash``), and the volumes are printed next
+to the zones (``foam 440 mL``, ``liquid 213 mL``, ``total 654 mL``) when a
+``model_fn`` (``y_px -> V_mL``) is given.
 """
 from __future__ import annotations
 
@@ -117,6 +124,107 @@ def _stroke_text(img: np.ndarray, text: str, org: tuple[int, int], font: int,
     cv2.putText(img, text, org, font, scale, color, thick, cv2.LINE_AA)
 
 
+def mean_line_width(zoom: float = 1.0) -> int:
+    """Stroke width of a mean interface line at the output resolution.
+
+    ``theme.MEAN_LINE_W`` px whatever the down-scaling (the lines are drawn
+    after the zoom, so they never thin out in a small figure); when the
+    image is zoomed IN the width grows by one pixel per zoom unit so the
+    stroke keeps a similar proportion to the magnified crop.
+    """
+    z = float(zoom)
+    return int(theme.MEAN_LINE_W + (max(1, int(round(z))) - 1)) if z > 1.0 else int(theme.MEAN_LINE_W)
+
+
+def draw_mean_line(img: np.ndarray, x0: int, x1: int, y: int, color: tuple[int, int, int],
+                   line_w: int | None = None) -> None:
+    """Thick horizontal mean line ``[x0, x1]`` at row ``y`` with a dark outline."""
+    H = img.shape[0]
+    if not (0 <= y < H) or x1 < x0:
+        return
+    w = int(theme.MEAN_LINE_W if line_w is None else line_w)
+    ow = int(theme.MEAN_LINE_OUTLINE_W)
+    if ow > 0:
+        cv2.line(img, (x0, y), (x1, y), theme.BRACE_OUTLINE_BGR, w + 2 * ow, cv2.LINE_AA)
+    cv2.line(img, (x0, y), (x1, y), color, w, cv2.LINE_AA)
+
+
+def wash_zones(img: np.ndarray, x0: int, x1: int, y_upper: int | None, y_lower: int | None,
+               y_bottom: int | None, *, alpha_foam: float | None = None,
+               alpha_liquid: float | None = None) -> None:
+    """Semi-transparent colour wash of the foam and liquid zones, in place.
+
+    Foam = rows ``[y_upper, y_lower)`` (peach), liquid = rows
+    ``[y_lower, y_bottom)`` (blue), both over columns ``[x0, x1]``. Rows and
+    columns are in the coordinates of ``img`` (already zoomed). A zone whose
+    bound is unknown (``None``) is skipped; with no lower interface nothing
+    is drawn (the foam zone alone would be ambiguous).
+    """
+    H, W = img.shape[:2]
+    x0 = max(0, int(x0))
+    x1 = min(W - 1, int(x1))
+    if x1 < x0 or y_lower is None:
+        return
+    a_f = theme.WASH_ALPHA_FOAM if alpha_foam is None else float(alpha_foam)
+    a_l = theme.WASH_ALPHA_LIQUID if alpha_liquid is None else float(alpha_liquid)
+    zones = []
+    if y_upper is not None and y_lower > y_upper:
+        zones.append((y_upper, y_lower, theme.FOAM_WASH_BGR, a_f))
+    if y_bottom is not None and y_bottom > y_lower:
+        zones.append((y_lower, y_bottom, theme.LIQUID_WASH_BGR, a_l))
+    for r0, r1, color, alpha in zones:
+        r0 = max(0, int(r0))
+        r1 = min(H, int(r1))
+        if r1 <= r0 or alpha <= 0.0:
+            continue
+        region = img[r0:r1, x0:x1 + 1]
+        tint = np.empty_like(region)
+        tint[:] = color
+        cv2.addWeighted(region, 1.0 - alpha, tint, alpha, 0.0, dst=region)
+
+
+def volume_labels(result: InterfaceResult, model_fn: Callable[[Any], Any] | None
+                  ) -> dict[str, str]:
+    """``{"foam": "foam 440 mL", "liquid": ..., "total": ...}`` for the zones found.
+
+    Volumes come from ``model_fn(y_px) -> V_mL``; without a model the labels
+    are the bare zone names. Only the zones whose interfaces were detected
+    get an entry.
+    """
+    def V(y: float | None) -> float | None:
+        if y is None or model_fn is None:
+            return None
+        v = float(np.asarray(model_fn(np.array([float(y)])), dtype=float).ravel()[0])
+        return v if np.isfinite(v) else None
+
+    out: dict[str, str] = {}
+    V_l, V_t = V(result.y_lower), V(result.y_upper)
+    if result.y_lower is not None:
+        out["liquid"] = "liquid" if V_l is None else f"liquid {V_l:.0f} mL"
+    if result.y_upper is not None and result.y_lower is not None:
+        V_f = (V_t - V_l) if (V_l is not None and V_t is not None) else None
+        out["foam"] = "foam" if V_f is None else f"foam {V_f:.0f} mL"
+        out["total"] = "total" if V_t is None else f"total {V_t:.0f} mL"
+    return out
+
+
+def _label_text(img: np.ndarray, text: str, org: tuple[int, int], *, font_scale: float,
+                thick: int, color: tuple[int, int, int] = theme.LABEL_BGR) -> None:
+    """Outlined label (white on a black halo) legible on any background."""
+    cv2.putText(img, text, org, BRACE_FONT, font_scale, theme.LABEL_OUTLINE_BGR, thick + 2, cv2.LINE_AA)
+    cv2.putText(img, text, org, BRACE_FONT, font_scale, color, thick, cv2.LINE_AA)
+
+
+def _fit_label(text: str, max_w: int, font_scale: float, thick: int) -> tuple[str, int, int] | None:
+    """``(text, w, h)`` of the longest of ``text`` / its short form that fits ``max_w``."""
+    short = text.split(" ", 1)[1] if " " in text and text.split(" ", 1)[1].endswith("mL") else text
+    for cand in (text, short):
+        (tw, th), _ = cv2.getTextSize(cand, BRACE_FONT, font_scale, thick)
+        if tw <= max_w:
+            return cand, tw, th
+    return None
+
+
 def draw_brace_right(img: np.ndarray, y_top: int, y_bot: int, x_anchor: int,
                      label: str, color: tuple[int, int, int] = theme.BRACE_BGR,
                      arm: int = 10, mid_arm: int = 14, font_scale: float = 0.7,
@@ -164,6 +272,10 @@ def annotate_interfaces(img_bgr: np.ndarray, result: InterfaceResult,
                         show_bands: bool = True, show_masks: bool = True,
                         show_axis: bool = True,
                         y_bounds: tuple[float | None, float | None] | None = None,
+                        show_wash: bool = True, show_labels: bool = True,
+                        model_fn: Callable[[Any], Any] | None = None,
+                        line_w: int | None = None,
+                        label_scale: float | None = None,
                         ) -> np.ndarray:
     """Draw the detection overlays on a copy of ``img_bgr``.
 
@@ -184,6 +296,19 @@ def annotate_interfaces(img_bgr: np.ndarray, result: InterfaceResult,
     y_bounds
         Optional ``(y_up, y_lo)`` empirical bounds drawn dashed (yellow /
         cyan) for the uncertainty figures.
+    show_wash
+        Semi-transparent wash of the foam zone (between the two interfaces)
+        and of the liquid zone (lower interface down to ``params.y_bottom``),
+        see :func:`wash_zones`. Drawn under every stroke.
+    show_labels, model_fn
+        Print ``foam ... mL`` / ``liquid ... mL`` inside the zones (volumes
+        through ``model_fn``; bare zone names without it). Labels that do
+        not fit the crop width fall back to the volume alone, then vanish.
+    line_w
+        Width of the mean lines at the output resolution; default
+        :func:`mean_line_width` of the zoom.
+    label_scale
+        Font scale of the zone labels (default ``theme.LABEL_FONT_SCALE``).
     """
     if img_bgr.ndim == 2:
         base = cv2.cvtColor(img_bgr, cv2.COLOR_GRAY2BGR)
@@ -209,8 +334,16 @@ def annotate_interfaces(img_bgr: np.ndarray, result: InterfaceResult,
     thin = max(1, int(round(z)))
     x_end = bx(W_crop - 1)
     x_beg = bx(0)
+    y_bot_px = (by(params.y_bottom) if params.y_bottom is not None and 0 <= params.y_bottom < H0
+                else H - 1)
 
-    # Gradient masks (magenta) and axis (mauve) under everything else.
+    # Zone wash (foam / liquid) under everything else.
+    if show_wash:
+        wash_zones(out, x_beg, x_end,
+                   None if result.y_upper is None else by(result.y_upper),
+                   None if result.y_lower is None else by(result.y_lower), y_bot_px)
+
+    # Gradient masks (magenta) and axis (mauve).
     if show_masks:
         if params.y_top > 0:
             cv2.line(out, (x_beg, by(params.y_top)), (x_end, by(params.y_top)),
@@ -268,15 +401,37 @@ def annotate_interfaces(img_bgr: np.ndarray, result: InterfaceResult,
         if y_lo is not None:
             dashed_hline(out, by(y_lo), theme.BOUND_LOWER_BGR, x_start=x_beg, x_stop=x_end + 1)
 
-    # Mean lines + inward arrow at the right edge of the crop.
-    line_w = max(1, int(round(z)))
+    # Mean lines (thick, outlined) + inward arrow at the right edge of the crop.
+    lw = mean_line_width(z) if line_w is None else max(1, int(line_w))
+    arrow_k = max(1, int(round(lw / 3)))
     for y_mean, color in ((result.y_upper, theme.UPPER_BGR), (result.y_lower, theme.LOWER_BGR)):
         if y_mean is None:
             continue
         yy = by(y_mean)
-        cv2.line(out, (x_beg, yy), (x_end - ARROW_W * line_w, yy), color, line_w, cv2.LINE_AA)
+        draw_mean_line(out, x_beg, x_end - ARROW_W * arrow_k, yy, color, lw)
         draw_inward_arrow(out, x_end, yy, "right", color,
-                          arrow_w=ARROW_W * line_w, arrow_h=ARROW_H * line_w)
+                          arrow_w=ARROW_W * arrow_k, arrow_h=ARROW_H * arrow_k + lw)
+
+    # Zone labels ("foam 440 mL" between the interfaces, "liquid 213 mL" below).
+    if show_labels:
+        fs = theme.LABEL_FONT_SCALE if label_scale is None else float(label_scale)
+        ft = max(1, int(round(theme.LABEL_FONT_THICK * fs / theme.LABEL_FONT_SCALE)))
+        labels = volume_labels(result, model_fn)
+        max_w = (x_end - x_beg) - 12
+        zones = []
+        if "foam" in labels and result.y_upper is not None and result.y_lower is not None:
+            zones.append((labels["foam"], by(result.y_upper), by(result.y_lower)))
+        if "liquid" in labels and result.y_lower is not None:
+            zones.append((labels["liquid"], by(result.y_lower), y_bot_px))
+        for text, r0, r1 in zones:
+            fit = _fit_label(text, max_w, fs, ft)
+            if fit is None or r1 - r0 < 4:
+                continue
+            txt, tw, th = fit
+            if r1 - r0 < th + 8:
+                continue
+            y_txt = (r0 + r1) // 2 + th // 2
+            _label_text(out, txt, (x_beg + 6, y_txt), font_scale=fs, thick=ft)
     return out
 
 
@@ -467,52 +622,118 @@ def make_specimen_panel(frame_bgr: np.ndarray, calib_crop: Sequence[int],
                         result: InterfaceResult, *,
                         labels: tuple[str, str] = ("foam", "liquid"),
                         draw_braces: bool = True,
-                        draw_crop_box: bool = False) -> np.ndarray:
-    """Full frame with interface arrows at the cylinder walls and braces.
+                        draw_crop_box: bool = False,
+                        zoom: float = 1.0,
+                        show_wash: bool = True,
+                        model_fn: Callable[[Any], Any] | None = None,
+                        line_w: int | None = None,
+                        label_scale: float | None = None) -> np.ndarray:
+    """Full frame with the interfaces drawn across the cylinder and braces.
 
     ``calib_crop = (x_left, x_right, y_top, y_bottom)`` in frame
     coordinates. Rows of ``result`` are frame rows (full-height crop), so
-    no remapping is needed. Braces: ``labels[0]`` between the two
-    interfaces, ``labels[1]`` between the lower interface and ``y_bottom``.
+    no remapping is needed.
+
+    The frame is first resized by ``zoom`` (``INTER_AREA`` down, cubic up)
+    and every stroke is drawn at the output resolution, so the lines, the
+    wash and the text keep their size whatever the scale of the panel.
+    The two mean lines cross the crop band (thick, outlined, red = lower,
+    teal = upper) with inward arrows at the walls; the foam zone (between
+    the interfaces) and the liquid zone (lower interface to ``y_bottom``)
+    get the semi-transparent wash of :func:`wash_zones`; the braces to the
+    right carry ``labels[0]`` / ``labels[1]`` completed with the volumes
+    when ``model_fn`` is given (``"foam 440 mL"``), and a ``total`` label
+    sits at the upper interface.
     """
-    x_left, x_right, y_top, y_bottom = (int(v) for v in calib_crop[:4])
-    panel = frame_bgr.copy() if frame_bgr.ndim == 3 else cv2.cvtColor(frame_bgr, cv2.COLOR_GRAY2BGR)
+    x_left0, x_right0, y_top0, y_bottom0 = (int(v) for v in calib_crop[:4])
+    base = frame_bgr if frame_bgr.ndim == 3 else cv2.cvtColor(frame_bgr, cv2.COLOR_GRAY2BGR)
+    H0, W0 = base.shape[:2]
+    z = float(zoom)
+    if abs(z - 1.0) < 1e-9:
+        panel = base.copy()
+    else:
+        interp = cv2.INTER_CUBIC if z > 1.0 else cv2.INTER_AREA
+        panel = cv2.resize(base, (max(1, int(round(W0 * z))), max(1, int(round(H0 * z)))),
+                           interpolation=interp)
     H, W = panel.shape[:2]
-    y_top = max(0, min(y_top, H - 1))
-    y_bottom = max(y_top + 1, min(y_bottom, H - 1))
-    x_left = max(0, min(x_left, W - 1))
-    x_right = max(x_left + 1, min(x_right, W - 1))
+
+    def sx(x: float) -> int:
+        return int(round((x + 0.5) * z)) if z != 1.0 else int(round(x))
+
+    def sy(y: float) -> int:
+        return int(round((y + 0.5) * z)) if z != 1.0 else int(round(y))
+
+    y_top = max(0, min(sy(y_top0), H - 1))
+    y_bottom = max(y_top + 1, min(sy(y_bottom0), H - 1))
+    x_left = max(0, min(sx(x_left0), W - 1))
+    x_right = max(x_left + 1, min(sx(x_right0), W - 1))
+
+    y_up = result.y_upper
+    y_lo = result.y_lower
+    yu = None if y_up is None else sy(float(y_up))
+    yl = None if y_lo is None else sy(float(y_lo))
+
+    if show_wash:
+        wash_zones(panel, x_left, x_right, yu, yl, y_bottom)
 
     if draw_crop_box:
         cv2.rectangle(panel, (x_left, y_top), (x_right, y_bottom), theme.MASK_BGR, 1, cv2.LINE_AA)
 
-    y_up = result.y_upper
-    y_lo = result.y_lower
-    if draw_braces:
-        brace_x = x_right + 6
-        if y_up is not None and y_lo is not None:
-            yu, yl = int(round(y_up)), int(round(y_lo))
-            if yl - yu >= 4:
-                draw_brace_right(panel, yu, yl, brace_x, labels[0])
-        if y_lo is not None:
-            yl = int(round(y_lo))
-            if y_bottom - yl >= 4:
-                draw_brace_right(panel, yl, y_bottom, brace_x, labels[1])
+    lw = mean_line_width(z) if line_w is None else max(1, int(line_w))
+    fs = theme.LABEL_FONT_SCALE if label_scale is None else float(label_scale)
+    ft = max(1, int(round(theme.LABEL_FONT_THICK * fs / theme.LABEL_FONT_SCALE)))
+    arrow_k = max(1, int(round(lw / 3)))
+    aw, ah = ARROW_W * arrow_k, ARROW_H * arrow_k + lw
 
-    if y_up is not None:
-        y = int(round(y_up))
-        draw_inward_arrow(panel, x_left, y, "left", theme.UPPER_BGR)
-        draw_inward_arrow(panel, x_right, y, "right", theme.UPPER_BGR)
-    if y_lo is not None:
-        y = int(round(y_lo))
-        draw_inward_arrow(panel, x_left, y, "left", theme.LOWER_BGR)
-        draw_inward_arrow(panel, x_right, y, "right", theme.LOWER_BGR)
+    vol = volume_labels(result, model_fn)
+    brace_x = x_right + 6
+    x_txt = brace_x + 10 + 14 + 6
+    if draw_braces:
+        foam_txt = vol.get("foam", labels[0]) if model_fn is not None else labels[0]
+        liq_txt = vol.get("liquid", labels[1]) if model_fn is not None else labels[1]
+        # Shrink the font (down to 2/3) then drop the zone name so that the
+        # labels fit in the margin right of the cylinder.
+        avail = W - x_txt - 4
+        fs_b, ft_b = fs, ft
+        for cand_fs in (fs, fs * 0.85, fs * 0.67):
+            ft_b = max(1, int(round(theme.LABEL_FONT_THICK * cand_fs / theme.LABEL_FONT_SCALE)))
+            widths = [cv2.getTextSize(t, BRACE_FONT, cand_fs, ft_b)[0][0] for t in (foam_txt, liq_txt)]
+            fs_b = cand_fs
+            if max(widths) <= avail:
+                break
+        else:
+            fit_f = _fit_label(foam_txt, avail, fs_b, ft_b)
+            fit_l = _fit_label(liq_txt, avail, fs_b, ft_b)
+            foam_txt = fit_f[0] if fit_f else foam_txt
+            liq_txt = fit_l[0] if fit_l else liq_txt
+        if yu is not None and yl is not None and yl - yu >= 4:
+            draw_brace_right(panel, yu, yl, brace_x, foam_txt, font_scale=fs_b, font_thick=ft_b)
+        if yl is not None and y_bottom - yl >= 4:
+            draw_brace_right(panel, yl, y_bottom, brace_x, liq_txt, font_scale=fs_b, font_thick=ft_b)
+        fs, ft = fs_b, ft_b
+
+    for yy, color in ((yu, theme.UPPER_BGR), (yl, theme.LOWER_BGR)):
+        if yy is None:
+            continue
+        draw_mean_line(panel, x_left + aw, x_right - aw, yy, color, lw)
+        draw_inward_arrow(panel, x_left, yy, "left", color, arrow_w=aw, arrow_h=ah)
+        draw_inward_arrow(panel, x_right, yy, "right", color, arrow_w=aw, arrow_h=ah)
+
+    # "total ... mL" at the upper interface, to the right of the brace tip.
+    if draw_braces and model_fn is not None and yu is not None and yl is not None and "total" in vol:
+        fit = _fit_label(vol["total"], W - x_txt - 4, fs, ft)
+        if fit is not None:
+            txt, tw, th = fit
+            y_txt = yu - 6 if (yl - yu) < 3 * th else yu + th // 2
+            if y_txt - th >= 0:
+                _label_text(panel, txt, (x_txt, y_txt), font_scale=fs, thick=ft, color=theme.UPPER_BGR)
     return panel
 
 
 __all__ = [
     "LABEL_HEIGHT", "SEP", "PANEL_LABELS",
     "dashed_hline", "draw_inward_arrow", "draw_brace_right",
+    "mean_line_width", "draw_mean_line", "wash_zones", "volume_labels",
     "annotate_interfaces", "make_gradient_panel", "make_threshold_panel",
     "make_highlight_panel", "make_label_strip", "make_panels",
     "make_info_strip", "make_specimen_panel",

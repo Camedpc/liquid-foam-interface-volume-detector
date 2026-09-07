@@ -286,32 +286,65 @@
     {
       "file": "hero.png",
       "size_px": [
-        1600,
-        900
+        1581,
+        904
       ],
-      "bytes": 600225,
-      "description": "Tuner canvas (specimen + highlight + signed gradient + threshold mask + info strip) on the green-screen run, inline layout, 1920x1080 screen.",
+      "bytes": 1045656,
+      "description": "Raw frame -> detected, on the green-screen run (left pair) and the black-background run (right pair): thick red / teal mean lines at the liquid/foam and foam/air interfaces, peach wash on the foam band, blue wash on the liquid, volumes next to the zones.",
       "source": {
-        "run": "green",
-        "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
-        "frame": 108,
-        "t_sec": 216.22,
-        "params": {
-          "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
-          "blur_sigma": 5.7,
-          "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
-          "channel": "gray"
+        "runs": {
+          "green": {
+            "run": "green",
+            "video": "subsampled_step60.mp4",
+            "run_dir": "10 1000mL final results pour beer",
+            "frame": 108,
+            "t_sec": 216.22,
+            "params": {
+              "polarity": "lower_brighter",
+              "T_lower": 16.0,
+              "T_upper": 16.0,
+              "r_lower": 64,
+              "r_upper": 64,
+              "blur_sigma": 5.7,
+              "blur_h": 38,
+              "min_h_upper": 3,
+              "y_top": 5,
+              "y_bottom": 1869,
+              "cx": 157,
+              "channel": "gray"
+            },
+            "y_lower": 1487.7674418604652,
+            "y_upper": 722.4444444444445,
+            "n_lower": 129,
+            "n_upper": 18
+          },
+          "black": {
+            "run": "black",
+            "video": "05 2026-04-30 1000mL vertical pour.mp4",
+            "run_dir": "05 2026-04-30 1000mL vertical pour",
+            "frame": 2472,
+            "t_sec": 124.18,
+            "params": {
+              "polarity": "lower_darker",
+              "T_lower": 47.0,
+              "T_upper": 14.0,
+              "r_lower": 80,
+              "r_upper": 113,
+              "blur_sigma": 5.0,
+              "blur_h": 38,
+              "min_h_upper": 3,
+              "y_top": 34,
+              "y_bottom": 1031,
+              "cx": 113,
+              "channel": "gray"
+            },
+            "y_lower": 845.7267080745341,
+            "y_upper": 159.83251231527095,
+            "n_lower": 161,
+            "n_upper": 203
+          }
         },
-        "layout": "inline, specimen on"
+        "layout": "raw | detected | raw | detected, cropped around the cylinder"
       }
     },
     {
@@ -320,7 +353,7 @@
         1184,
         868
       ],
-      "bytes": 355481,
+      "bytes": 345516,
       "description": "Threshold of the lower (liquid/foam) interface: too low validates weak gradients in every column (false positives in the mask), the tuned value keeps only the true interface.",
       "source": {
         "run": "green",
@@ -370,7 +403,7 @@
         1106,
         833
       ],
-      "bytes": 311561,
+      "bytes": 346830,
       "description": "Threshold of the upper (foam/air) interface: the bottom-up search from the lower interface stops on the first row above threshold, so a low value catches bubble edges right above the beer.",
       "source": {
         "run": "black",
@@ -420,7 +453,7 @@
         1106,
         833
       ],
-      "bytes": 399536,
+      "bytes": 390151,
       "description": "Horizontal box filter: it averages every row along x, keeping the horizontal interfaces and washing out the vertical bubble texture of the foam.",
       "source": {
         "run": "black",
@@ -470,7 +503,7 @@
         1184,
         868
       ],
-      "bytes": 491381,
+      "bytes": 564641,
       "description": "Gaussian smoothing: with a small sigma every bubble edge competes with the interface and the per-column detections scatter; the tuned value spreads the interface over a few rows.",
       "source": {
         "run": "green",
@@ -520,7 +553,7 @@
         1446,
         720
       ],
-      "bytes": 420334,
+      "bytes": 495484,
       "description": "Grey level used by the detector: the green channel carries the contrast of a green screen, the red channel almost nothing.",
       "source": {
         "run": "green",
@@ -577,7 +610,7 @@
         1184,
         868
       ],
-      "bytes": 379314,
+      "bytes": 449551,
       "description": "Axis column inside the crop: the band is centred on cx, so a wrong cx samples the interface near a wall (meniscus, refraction) instead of the centre.",
       "source": {
         "run": "green",
@@ -627,7 +660,7 @@
         1184,
         905
       ],
-      "bytes": 317557,
+      "bytes": 333548,
       "description": "Connected-component height filter of the upper interface, during the pour (foam full of large bubbles): without it the bottom-up search stops on thin bubble edges inside the foam and the upper interface drops by more than 100 px; requiring blobs at least 3 rows tall keeps the foam top.",
       "source": {
         "run": "green",
@@ -677,7 +710,7 @@
         1446,
         720
       ],
-      "bytes": 277377,
+      "bytes": 274200,
       "description": "Half-width of the averaging band of the lower interface: a narrow band uses few columns, the whole width includes the walls where refraction and the meniscus bend the interface.",
       "source": {
         "run": "green",
@@ -734,7 +767,7 @@
         1455,
         830
       ],
-      "bytes": 374710,
+      "bytes": 466012,
       "description": "Bottom gradient mask: rows below y_bottom are zeroed (magenta line). Without it the bright edge of the base shows up as a teal blob in the threshold mask (an upper-interface candidate, harmless here but picked whenever the lower interface is lost); a y_bottom above the beer/foam interface masks the true lower interface.",
       "source": {
         "run": "black",
@@ -791,7 +824,7 @@
         1106,
         872
       ],
-      "bytes": 316894,
+      "bytes": 405848,
       "description": "Top gradient mask: rows above y_top are zeroed (magenta line). The glass rim of both runs lies outside the frame, so the mask is shown the other way round: a y_top below the foam top masks the true upper interface and the detector reports nothing above threshold.",
       "source": {
         "run": "black",
@@ -841,7 +874,7 @@
         619,
         1399
       ],
-      "bytes": 569238,
+      "bytes": 555982,
       "description": "Analysis panels + info strip on the green-screen run with polarity lower_brighter: the beer transmits the back light, the foam scatters it, the signs are flipped.",
       "source": {
         "run": "green",
@@ -871,7 +904,7 @@
         685,
         1195
       ],
-      "bytes": 374596,
+      "bytes": 376653,
       "description": "Analysis panels + info strip on the black-background run with polarity lower_darker: the lower (beer/foam) interface is a negative Gy peak, the upper (foam/air) a positive one.",
       "source": {
         "run": "black",
@@ -901,7 +934,7 @@
         1184,
         930
       ],
-      "bytes": 521502,
+      "bytes": 626805,
       "description": "Same green-screen frame processed with the wrong polarity (left) and the right one (right): with lower_darker the detector locks on the wrong sign of the gradient.",
       "source": {
         "run": "green",
@@ -964,12 +997,121 @@
       }
     },
     {
+      "file": "timeline_green.png",
+      "size_px": [
+        1600,
+        598
+      ],
+      "bytes": 723523,
+      "description": "Six frames of the green-screen run, each with the detected interfaces, the foam wash and the volumes: the pour, then the foam band shrinking while the liquid level rises.",
+      "source": {
+        "run": "green",
+        "video": "subsampled_step60.mp4",
+        "run_dir": "10 1000mL final results pour beer",
+        "params": {
+          "polarity": "lower_brighter",
+          "T_lower": 16.0,
+          "T_upper": 16.0,
+          "r_lower": 64,
+          "r_upper": 64,
+          "blur_sigma": 5.7,
+          "blur_h": 38,
+          "min_h_upper": 3,
+          "y_top": 5,
+          "y_bottom": 1869,
+          "cx": 157,
+          "channel": "gray"
+        },
+        "frames": [
+          {
+            "frame": 30,
+            "t_sec": 60.06,
+            "y_lower": 1817.1162790697674,
+            "y_upper": 812.7054263565891,
+            "n_lower": 129,
+            "n_upper": 129
+          },
+          {
+            "frame": 60,
+            "t_sec": 120.12,
+            "y_lower": 1563.8837209302326,
+            "y_upper": 651.1525423728814,
+            "n_lower": 129,
+            "n_upper": 59
+          },
+          {
+            "frame": 108,
+            "t_sec": 216.22,
+            "y_lower": 1487.7674418604652,
+            "y_upper": 722.4444444444445,
+            "n_lower": 129,
+            "n_upper": 18
+          },
+          {
+            "frame": 300,
+            "t_sec": 600.6,
+            "y_lower": 1432.7829457364342,
+            "y_upper": 1079.6266666666668,
+            "n_lower": 129,
+            "n_upper": 75
+          },
+          {
+            "frame": 600,
+            "t_sec": 1201.2,
+            "y_lower": 1425.3178294573643,
+            "y_upper": 1166.9922480620155,
+            "n_lower": 129,
+            "n_upper": 129
+          },
+          {
+            "frame": 1000,
+            "t_sec": 2002.0,
+            "y_lower": 1431.7906976744187,
+            "y_upper": 1212.6632653061224,
+            "n_lower": 129,
+            "n_upper": 98
+          }
+        ]
+      }
+    },
+    {
+      "file": "tuner_canvas_inline.png",
+      "size_px": [
+        1600,
+        900
+      ],
+      "bytes": 595640,
+      "description": "Tuner canvas (specimen + highlight + signed gradient + threshold mask + info strip) on the green-screen run, inline layout, 1920x1080 screen.",
+      "source": {
+        "run": "green",
+        "video": "subsampled_step60.mp4",
+        "run_dir": "10 1000mL final results pour beer",
+        "frame": 108,
+        "t_sec": 216.22,
+        "params": {
+          "polarity": "lower_brighter",
+          "T_lower": 16.0,
+          "T_upper": 16.0,
+          "r_lower": 64,
+          "r_upper": 64,
+          "blur_sigma": 5.7,
+          "blur_h": 38,
+          "min_h_upper": 3,
+          "y_top": 5,
+          "y_bottom": 1869,
+          "cx": 157,
+          "channel": "gray"
+        },
+        "layout": "inline, specimen on"
+      }
+    },
+    {
       "file": "tuner_canvas_stacked.png",
       "size_px": [
         1600,
         900
       ],
-      "bytes": 373809,
+      "bytes": 372655,
       "description": "Tuner canvas in the stacked layout (specimen + highlight on the first row, signed gradient + threshold mask on the second) on the black-background run.",
       "source": {
         "run": "black",
@@ -1118,7 +1260,7 @@
         1591,
         416
       ],
-      "bytes": 225325,
+      "bytes": 214782,
       "description": "Zoom on the lower interface of the green-screen frame with the per-column detections, the mean line and the dashed empirical bounds, next to the numbers of the method uncertainty.",
       "source": {
         "run": "green",

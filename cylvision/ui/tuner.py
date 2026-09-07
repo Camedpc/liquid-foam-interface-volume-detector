@@ -198,17 +198,15 @@ def render_canvas(frame_bgr: np.ndarray, calib: Calibration, params: DetectionPa
             break
         info = probe
 
-    # Panels at the target scale. The highlight overlays are drawn AFTER
-    # upscaling so that dots and lines stay crisp.
-    if s > 1.02:
-        p_high = annotate_interfaces(crop, result, params, zoom=s, show_extras=True)
-    else:
-        p_high = _resize(annotate_interfaces(crop, result, params, zoom=1.0, show_extras=True), s)
+    # Panels at the target scale. The overlays (highlight and specimen) are
+    # drawn AFTER scaling so that lines, wash and labels keep their pixel size.
+    p_high = annotate_interfaces(crop, result, params, zoom=s, show_extras=True, model_fn=model_fn)
     p_grad = _resize(make_gradient_panel(result.S), s)
     p_mask = _resize(make_threshold_panel(result.S, params), s)
     _mask_lines(p_grad, params, s)
     _mask_lines(p_mask, params, s)
-    p_spec = _resize(make_specimen_panel(frame_bgr, calib.crop(), result), s) if show_specimen else None
+    p_spec = (make_specimen_panel(frame_bgr, calib.crop(), result, zoom=s, model_fn=model_fn)
+              if show_specimen else None)
 
     total_w = max(1, int(round(raw_w * s)))
     if inline:

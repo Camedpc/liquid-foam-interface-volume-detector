@@ -62,7 +62,7 @@ from cylvision.detection import (  # noqa: E402
     make_label_strip,
     make_threshold_panel,
 )
-from cylvision.detection.panels import SEP  # noqa: E402
+from cylvision.detection.panels import SEP, make_specimen_panel, volume_labels  # noqa: E402
 from cylvision.io import VideoSource, imread_unicode  # noqa: E402
 from cylvision.pipeline import (  # noqa: E402
     RunDir,
@@ -271,12 +271,16 @@ def draw_mask_lines(img: np.ndarray, params: DetectionParams, s: float) -> None:
 
 def analysis_panels(crop: np.ndarray, result: InterfaceResult, params: DetectionParams, *,
                     scale: float = 1.0, rows: tuple[int, int] | None = None,
-                    with_labels: bool = True) -> np.ndarray:
+                    with_labels: bool = True, model_fn: Callable[..., Any] | None = None,
+                    **overlay: Any) -> np.ndarray:
     """``[highlight | signed gradient | threshold mask]`` at ``scale``, rows ``[r0, r1)`` of the crop.
 
-    The overlays are drawn after scaling so the dots stay crisp.
+    The overlays are drawn after scaling so the lines, the wash and the zone
+    labels keep their pixel size; ``model_fn`` prints the volumes in the
+    highlight panel; ``overlay`` is forwarded to ``annotate_interfaces``.
     """
-    p_high = annotate_interfaces(crop, result, params, zoom=scale, show_extras=False)
+    p_high = annotate_interfaces(crop, result, params, zoom=scale, show_extras=False, model_fn=model_fn,
+                                 **overlay)
     p_grad = scale_img(make_gradient_panel(result.S), scale)
     p_mask = scale_img(make_threshold_panel(result.S, params), scale)
     draw_mask_lines(p_grad, params, scale)
@@ -418,13 +422,114 @@ def run_batches(g: RunCtx, b: RunCtx, work_dir: Path, skip: bool) -> dict[str, l
 # Figures
 # ---------------------------------------------------------------------------
 
+HERO_HEIGHT = 820          # height (px) of the four hero panels before the final width limit
+TIMELINE_HEIGHT = 640      # height (px) of every timeline panel
+TIMELINE_GREEN = (30, 60, 108, 300, 600, 1000)   # frames of the green run (1 frame = 60 source frames)
+
+
+def cylinder_window(ctx: RunCtx, frame_w: int, *, margin_left: int, margin_right: int) -> tuple[int, int]:
+    """Frame columns ``[x0, x1)`` around the calibrated crop band."""
+    x_left, x_right, _, _ = ctx.calib.crop()
+    return max(0, x_left - margin_left), min(frame_w, x_right + 1 + margin_right)
+
+
+def detected_panel(ctx: RunCtx, idx: int, *, height: int, margin_left: int, margin_right: int,
+                   label_scale: float | None = None, pad_right: int | None = None
+                   ) -> tuple[np.ndarray, InterfaceResult]:
+    """Specimen panel (wash + thick lines + braces + volumes) around the cylinder.
+
+    The frame is cropped to ``[x_left - margin_left, x_right + margin_right)``
+    and extended on the right by a dark margin (``pad_right`` output px, sized
+    for the longest label by default) so the brace labels never leave the
+    picture. Returns the panel at ``height`` px and the detection.
+    """
+    frame = ctx.frame(idx)
+    H, W = frame.shape[:2]
+    _, res, _ = ctx.detect(idx)
+    z = height / H
+    fs = theme.LABEL_FONT_SCALE if label_scale is None else float(label_scale)
+    ft = max(1, int(round(theme.LABEL_FONT_THICK * fs / theme.LABEL_FONT_SCALE)))
+    if pad_right is None:
+        (tw, _), _ = cv2.getTextSize("liquid 8888 mL", cv2.FONT_HERSHEY_DUPLEX, fs, ft)
+        pad_right = 6 + 10 + 14 + 6 + tw + 12
+    x0, x1 = cylinder_window(ctx, W, margin_left=margin_left, margin_right=margin_right)
+    pad_native = int(math.ceil(pad_right / z))
+    extra = max(0, x1 + pad_native - W)
+    if extra:
+        pad = np.empty((H, extra, 3), dtype=np.uint8)
+        pad[:] = theme.BG_BGR
+        frame = np.concatenate([frame, pad], axis=1)
+    panel = make_specimen_panel(frame, ctx.calib.crop(), res, zoom=z, model_fn=ctx.model_fn,
+                                label_scale=fs)
+    c0 = int(round(x0 * z))
+    c1 = int(round((x1 + pad_native) * z))
+    return np.ascontiguousarray(panel[:, c0:c1]), res
+
+
+def raw_panel(ctx: RunCtx, idx: int, *, height: int, margin_left: int, margin_right: int) -> np.ndarray:
+    frame = ctx.frame(idx)
+    x0, x1 = cylinder_window(ctx, frame.shape[1], margin_left=margin_left, margin_right=margin_right)
+    return resize_to_height(np.ascontiguousarray(frame[:, x0:x1]), height)
+
+
+def zone_lines(res: InterfaceResult, model_fn: Callable[..., Any]) -> list[str]:
+    """Caption lines of a detected panel: the three volumes (or what is missing)."""
+    lab = volume_labels(res, model_fn)
+    if "foam" in lab:
+        return [f"{lab['foam']}   {lab['liquid']}", lab["total"]]
+    if "liquid" in lab:
+        return [lab["liquid"], "no foam / air interface"]
+    return ["no interface detected", ""]
+
+
 def fig_hero(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
-    idx = GREEN_FRAMES["best"]
-    canvas = compose_canvas(g.frame(idx), g.calib, g.params, g.model_fn, show_specimen=True, inline=True,
-                            screen_size=SCREEN, frame_idx=idx, t_sec=g.t_sec(idx), fps=g.video.fps)
-    m.save_png("hero", canvas, "Tuner canvas (specimen + highlight + signed gradient + threshold mask "
-               "+ info strip) on the green-screen run, inline layout, 1920x1080 screen.",
-               source_of(g, idx, layout="inline, specimen on"))
+    """``hero.png``: raw frame -> detected, for both lighting setups; ``tuner_canvas_inline.png``."""
+    gi, bi = GREEN_FRAMES["best"], BLACK_FRAMES["best"]
+    margins = {"green": (150, 40), "black": (160, 40)}
+    imgs, labels, src = [], [], {}
+    for ctx, idx in ((g, gi), (b, bi)):
+        ml, mr = margins[ctx.name]
+        det, res = detected_panel(ctx, idx, height=HERO_HEIGHT, margin_left=ml, margin_right=mr)
+        raw = raw_panel(ctx, idx, height=HERO_HEIGHT, margin_left=ml, margin_right=mr)
+        setup = "back-lit green screen" if ctx.name == "green" else "front-lit black background"
+        imgs += [raw, det]
+        labels += [["raw frame", setup, f"frame {idx}, t = {ctx.t_sec(idx):.0f} s"],
+                   ["detected", *zone_lines(res, ctx.model_fn)]]
+        src[ctx.name] = source_of(ctx, idx, y_lower=res.y_lower, y_upper=res.y_upper,
+                                  n_lower=res.n_lower, n_upper=res.n_upper)
+    m.save_png("hero", side_by_side(imgs, labels, gap=10),
+               "Raw frame -> detected, on the green-screen run (left pair) and the black-background run "
+               "(right pair): thick red / teal mean lines at the liquid/foam and foam/air interfaces, "
+               "peach wash on the foam band, blue wash on the liquid, volumes next to the zones.",
+               {"runs": src, "layout": "raw | detected | raw | detected, cropped around the cylinder"})
+
+    canvas = compose_canvas(g.frame(gi), g.calib, g.params, g.model_fn, show_specimen=True, inline=True,
+                            screen_size=SCREEN, frame_idx=gi, t_sec=g.t_sec(gi), fps=g.video.fps)
+    m.save_png("tuner_canvas_inline", canvas,
+               "Tuner canvas (specimen + highlight + signed gradient + threshold mask + info strip) on the "
+               "green-screen run, inline layout, 1920x1080 screen.",
+               source_of(g, gi, layout="inline, specimen on"))
+
+
+def fig_timeline(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
+    """``timeline_green.png``: the foam band shrinking over the green run."""
+    imgs, labels, frames = [], [], []
+    for idx in TIMELINE_GREEN:
+        if idx >= g.video.n_frames:
+            continue
+        det, res = detected_panel(g, idx, height=TIMELINE_HEIGHT, margin_left=60, margin_right=16,
+                                  label_scale=0.55)
+        imgs.append(det)
+        lab = volume_labels(res, g.model_fn)
+        t = g.t_sec(idx)
+        t_txt = f"t = {t:.0f} s" if t < 120 else f"t = {t / 60:.1f} min"
+        labels.append([f"frame {idx}   {t_txt}", lab.get("foam", "no foam band"), lab.get("liquid", "")])
+        frames.append({"frame": idx, "t_sec": round(t, 2), "y_lower": res.y_lower, "y_upper": res.y_upper,
+                       "n_lower": res.n_lower, "n_upper": res.n_upper})
+    m.save_png("timeline_green", side_by_side(imgs, labels, gap=8),
+               "Six frames of the green-screen run, each with the detected interfaces, the foam wash and the "
+               "volumes: the pour, then the foam band shrinking while the liquid level rises.",
+               source_of(g, None, frames=frames))
 
 
 def fig_setup(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
@@ -440,7 +545,7 @@ def polarity_figure(ctx: RunCtx, idx: int, scale: float) -> np.ndarray:
     crop, result, _ = ctx.detect(idx)
     p = ctx.params
     rows = (max(0, p.y_top - 10), min(crop.shape[0], (p.y_bottom or crop.shape[0]) + 10))
-    body = analysis_panels(crop, result, p, scale=scale, rows=rows)
+    body = analysis_panels(crop, result, p, scale=scale, rows=rows, model_fn=ctx.model_fn)
     info = make_info_strip(body.shape[1], result, p, ctx.model_fn, idx, ctx.t_sec(idx), None)
     return stack([body, info])
 
@@ -464,7 +569,7 @@ def fig_polarity_wrong(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
     for pol, tag in (("lower_darker", "WRONG for a back-lit green screen"), ("lower_brighter", "correct")):
         p = replace(g.params, polarity=pol)
         _, res, _ = g.detect(idx, p)
-        imgs.append(analysis_panels(crop, res, p, scale=0.62, rows=rows))
+        imgs.append(analysis_panels(crop, res, p, scale=0.62, rows=rows, model_fn=g.model_fn))
         labels.append([f"polarity = {pol}   ({tag})", *detection_lines(res, g.model_fn)])
     m.save_png("polarity_wrong", side_by_side(imgs, labels),
                "Same green-screen frame processed with the wrong polarity (left) and the right one (right): "
@@ -505,7 +610,7 @@ def param_composite(ctx: RunCtx, idx: int, name: str, values: Sequence[Any], *, 
     for i, val in enumerate(values):
         p = setter(ctx.params, val) if setter else replace(ctx.params, **{name: val})
         _, res, _ = ctx.detect(idx, p)
-        imgs.append(analysis_panels(crop, res, p, scale=scale, rows=rows))
+        imgs.append(analysis_panels(crop, res, p, scale=scale, rows=rows, model_fn=ctx.model_fn))
         note = f"   ({notes[i]})" if notes and i < len(notes) and notes[i] else ""
         labels.append([f"{name} = {val}{note}", *detection_lines(res, ctx.model_fn)])
         variants.append({name: val, "y_lower": res.y_lower, "y_upper": res.y_upper,
@@ -746,7 +851,7 @@ def fig_uncertainty_method(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
     mu = method_uncertainty_from_result(res, g.model_fn, which="lower")
     zoom = 3.0
     img = annotate_interfaces(crop, res, g.params, zoom=zoom, show_extras=False,
-                              y_bounds=(mu["y_up"], mu["y_lo"]))
+                              y_bounds=(mu["y_up"], mu["y_lo"]), line_w=3, show_labels=False)
     half = 60
     r0 = int(max(0, (mu["y_up"] - half) * zoom))
     r1 = int(min(img.shape[0], (mu["y_lo"] + half) * zoom))
@@ -776,7 +881,8 @@ def fig_uncertainty_method(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
 
 
 FIGURES: dict[str, tuple[Callable[..., None], tuple[str, ...]]] = {
-    "hero": (fig_hero, ("hero",)),
+    "hero": (fig_hero, ("hero", "tuner_canvas_inline")),
+    "timeline": (fig_timeline, ("timeline_green",)),
     "setup": (fig_setup, ("setup_black_background", "setup_green_screen")),
     "polarity": (fig_polarity, ("polarity_lower_darker", "polarity_lower_brighter")),
     "polarity_wrong": (fig_polarity_wrong, ("polarity_wrong",)),

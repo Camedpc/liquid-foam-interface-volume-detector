@@ -121,6 +121,29 @@ SEPARATOR_BGR: tuple[int, int, int] = hex_to_bgr(PALETTE["crust"])
 BRACE_BGR: tuple[int, int, int] = (245, 245, 245)
 BRACE_OUTLINE_BGR: tuple[int, int, int] = (0, 0, 0)
 
+# ---------------------------------------------------------------------------
+# Interface rendering: "filled zones + volume labels"
+# ---------------------------------------------------------------------------
+# The mean interface lines are drawn at the OUTPUT resolution (after the
+# zoom), so their width is a number of screen / README pixels, not of frame
+# pixels: ``MEAN_LINE_W`` px of colour inside a ``MEAN_LINE_OUTLINE_W`` px
+# dark outline on each side. The zones between the interfaces receive a
+# semi-transparent wash (foam between the two interfaces, liquid between the
+# lower interface and ``y_bottom``) so the foam band reads as a shaded block
+# at a glance; the alphas stay modest so the raw image remains visible.
+MEAN_LINE_W: int = 6
+MEAN_LINE_OUTLINE_W: int = 1
+FOAM_WASH_BGR: tuple[int, int, int] = hex_to_bgr(PALETTE["peach"])
+LIQUID_WASH_BGR: tuple[int, int, int] = hex_to_bgr(PALETTE["blue"])
+WASH_ALPHA_FOAM: float = 0.30
+WASH_ALPHA_LIQUID: float = 0.18
+# Volume labels printed next to the zones ("foam 440 mL"): white text with a
+# black outline so it is legible on green, black and white.
+LABEL_BGR: tuple[int, int, int] = (250, 250, 250)
+LABEL_OUTLINE_BGR: tuple[int, int, int] = (0, 0, 0)
+LABEL_FONT_SCALE: float = 0.75
+LABEL_FONT_THICK: int = 2
+
 __all__ = [
     "PALETTE", "BG", "SURFACE", "SURFACE_HI", "TEXT", "SUBTEXT",
     "SECTION_CYLINDER", "SECTION_GRADIENT", "SECTION_VIEW", "SECTION_SAMPLING",
@@ -131,4 +154,7 @@ __all__ = [
     "MASK_BGR", "BOUND_UPPER_BGR", "BOUND_LOWER_BGR", "EXTRA_LOWEST_BGR",
     "EXTRA_BLOB_BGR", "STRIP_BG_BGR", "STRIP_TEXT_BGR", "SEPARATOR_BGR",
     "BRACE_BGR", "BRACE_OUTLINE_BGR",
+    "MEAN_LINE_W", "MEAN_LINE_OUTLINE_W", "FOAM_WASH_BGR", "LIQUID_WASH_BGR",
+    "WASH_ALPHA_FOAM", "WASH_ALPHA_LIQUID", "LABEL_BGR", "LABEL_OUTLINE_BGR",
+    "LABEL_FONT_SCALE", "LABEL_FONT_THICK",
 ]
