@@ -29,12 +29,15 @@ anti-aliased strokes at the output resolution, so the strokes keep their
 pixel size instead of sharing the scaling of the photograph. Pixel centres
 map to ``(x + 0.5) * zoom``.
 
-"Filled zones + volume labels": the mean interface lines are thick
-(``theme.MEAN_LINE_W`` px, dark outline), the foam band between the two
+"Flat lines + filled zones + instrument readout": the mean interface lines
+are flat (``theme.MEAN_LINE_W`` px, square ends, a 1 px darker shadow
+below, small filled triangles at the walls), the foam band between the two
 interfaces and the liquid below the lower one receive a semi-transparent
 wash (:func:`wash_zones`, ``show_wash``), and the volumes are printed next
-to the zones (``foam 440 mL``, ``liquid 213 mL``, ``total 654 mL``) when a
-``model_fn`` (``y_px -> V_mL``) is given.
+to the zones as small readout boxes (:func:`draw_readout`: ``FOAM`` in
+letter-spaced small caps, ``440 mL`` in a monospaced font, on a translucent
+dark backing with a colour bar) when a ``model_fn`` (``y_px -> V_mL``) is
+given. The text is TrueType through :mod:`cylvision.ui.text`.
 """
 from __future__ import annotations
 
@@ -44,6 +47,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from ..ui import text as uitext
 from ..ui import theme
 from .interfaces import DetectionParams, InterfaceResult
 
@@ -51,15 +55,22 @@ LABEL_HEIGHT = 24
 SEP = 2
 INFO_LINE_HEIGHT = 20
 INFO_PAD = 6
-ARROW_W = 7
-ARROW_H = 7
+ARROW_W = theme.TRIANGLE_W
+ARROW_H = theme.TRIANGLE_H
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 BRACE_FONT = cv2.FONT_HERSHEY_DUPLEX
-BRACE_OUTLINE_W = 3
-BRACE_INNER_W = 1
 
 PANEL_LABELS: tuple[str, str, str] = ("Highlight", "Signed gradient", "Threshold mask")
+
+# Zone colours of the readout bars: the interface colour of the line that
+# bounds the zone (total = upper/teal, liquid = lower/red) and the wash
+# colour for the foam band.
+ZONE_BAR_BGR: dict[str, tuple[int, int, int]] = {
+    "total": theme.UPPER_BGR,
+    "foam": theme.FOAM_WASH_BGR,
+    "liquid": theme.LOWER_BGR,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -85,11 +96,12 @@ def dashed_hline(img: np.ndarray, y: int, color: tuple[int, int, int], *,
 def draw_inward_arrow(img: np.ndarray, x_anchor: int, y: int, side: str,
                       color: tuple[int, int, int],
                       arrow_w: int = ARROW_W, arrow_h: int = ARROW_H) -> None:
-    """Small filled arrow anchored at column ``x_anchor`` pointing inwards.
+    """Small filled triangle anchored at column ``x_anchor`` pointing inwards.
 
-    ``side="left"``: arrow on the left edge of a zone (apex to the right);
-    ``side="right"``: arrow on the right edge (apex to the left). A 1 px
-    black outline keeps it visible on any background.
+    ``side="left"``: triangle on the left edge of a zone (apex to the
+    right); ``side="right"``: on the right edge (apex to the left). No
+    outline; a 1 px shadow copy offset downwards keeps it readable on a
+    light background, like the mean line it terminates.
     """
     H, W = img.shape[:2]
     if not (0 <= y < H):
@@ -108,20 +120,21 @@ def draw_inward_arrow(img: np.ndarray, x_anchor: int, y: int, side: str,
                         [x_anchor, y + arrow_h // 2]], dtype=np.int32)
     else:
         raise ValueError("side must be 'left' or 'right'")
-    cv2.fillPoly(img, [pts], color)
-    cv2.polylines(img, [pts], True, (0, 0, 0), 1, cv2.LINE_AA)
+    if theme.MEAN_LINE_SHADOW_W > 0:
+        cv2.fillPoly(img, [pts + np.array([0, theme.MEAN_LINE_SHADOW_W], dtype=np.int32)],
+                     theme.MEAN_LINE_SHADOW_BGR, cv2.LINE_AA)
+    cv2.fillPoly(img, [pts], color, cv2.LINE_AA)
 
 
 def _stroke_line(img: np.ndarray, p1: tuple[int, int], p2: tuple[int, int],
                  color: tuple[int, int, int]) -> None:
-    cv2.line(img, p1, p2, theme.BRACE_OUTLINE_BGR, BRACE_OUTLINE_W, cv2.LINE_AA)
-    cv2.line(img, p1, p2, color, BRACE_INNER_W, cv2.LINE_AA)
-
-
-def _stroke_text(img: np.ndarray, text: str, org: tuple[int, int], font: int,
-                 scale: float, color: tuple[int, int, int], thick: int = 1) -> None:
-    cv2.putText(img, text, org, font, scale, theme.BRACE_OUTLINE_BGR, thick + 2, cv2.LINE_AA)
-    cv2.putText(img, text, org, font, scale, color, thick, cv2.LINE_AA)
+    """1 px light stroke over a 1 px shadow (braces of the specimen panel)."""
+    w = max(1, int(theme.BRACE_W))
+    if theme.MEAN_LINE_SHADOW_W > 0:
+        d = int(theme.MEAN_LINE_SHADOW_W)
+        cv2.line(img, (p1[0] + d, p1[1] + d), (p2[0] + d, p2[1] + d),
+                 theme.MEAN_LINE_SHADOW_BGR, w, cv2.LINE_AA)
+    cv2.line(img, p1, p2, color, w, cv2.LINE_AA)
 
 
 def mean_line_width(zoom: float = 1.0) -> int:
@@ -129,24 +142,131 @@ def mean_line_width(zoom: float = 1.0) -> int:
 
     ``theme.MEAN_LINE_W`` px whatever the down-scaling (the lines are drawn
     after the zoom, so they never thin out in a small figure); when the
-    image is zoomed IN the width grows by one pixel per zoom unit so the
+    image is zoomed IN by 3 or more the width grows by one pixel so the
     stroke keeps a similar proportion to the magnified crop.
     """
     z = float(zoom)
-    return int(theme.MEAN_LINE_W + (max(1, int(round(z))) - 1)) if z > 1.0 else int(theme.MEAN_LINE_W)
+    return int(theme.MEAN_LINE_W) + (1 if z >= 3.0 else 0)
 
 
 def draw_mean_line(img: np.ndarray, x0: int, x1: int, y: int, color: tuple[int, int, int],
                    line_w: int | None = None) -> None:
-    """Thick horizontal mean line ``[x0, x1]`` at row ``y`` with a dark outline."""
-    H = img.shape[0]
+    """Flat horizontal mean line over ``[x0, x1]`` centred on row ``y``.
+
+    ``line_w`` px of solid colour with square ends (pixel-exact rectangle,
+    no anti-aliasing fuzz) and a ``theme.MEAN_LINE_SHADOW_W`` px darker line
+    directly below it, so the stroke reads on green, black and white.
+    """
+    H, W = img.shape[:2]
     if not (0 <= y < H) or x1 < x0:
         return
-    w = int(theme.MEAN_LINE_W if line_w is None else line_w)
-    ow = int(theme.MEAN_LINE_OUTLINE_W)
-    if ow > 0:
-        cv2.line(img, (x0, y), (x1, y), theme.BRACE_OUTLINE_BGR, w + 2 * ow, cv2.LINE_AA)
-    cv2.line(img, (x0, y), (x1, y), color, w, cv2.LINE_AA)
+    w = max(1, int(theme.MEAN_LINE_W if line_w is None else line_w))
+    x0, x1 = max(0, int(x0)), min(W - 1, int(x1))
+    if x1 < x0:
+        return
+    r0 = int(y) - w // 2
+    r1 = r0 + w - 1
+    sw = int(theme.MEAN_LINE_SHADOW_W)
+    if sw > 0:
+        s0, s1 = max(0, r1 + 1), min(H - 1, r1 + sw)
+        if s1 >= s0:
+            img[s0:s1 + 1, x0:x1 + 1] = theme.MEAN_LINE_SHADOW_BGR
+    r0, r1 = max(0, r0), min(H - 1, r1)
+    if r1 >= r0:
+        img[r0:r1 + 1, x0:x1 + 1] = color
+
+
+def dotted_hline(img: np.ndarray, x0: int, x1: int, y: int, color: tuple[int, int, int], *,
+                 dot: int | None = None, gap: int | None = None) -> None:
+    """1 px dotted horizontal leader over ``[x0, x1]`` at row ``y`` (``dot`` on, ``gap`` off)."""
+    H, W = img.shape[:2]
+    if not (0 <= y < H):
+        return
+    x0, x1 = max(0, int(x0)), min(W - 1, int(x1))
+    d = max(1, int(theme.LEADER_DOT if dot is None else dot))
+    g = max(1, int(theme.LEADER_GAP if gap is None else gap))
+    x = x0
+    while x <= x1:
+        img[y, x:min(x1, x + d - 1) + 1] = color
+        x += d + g
+
+
+# ---------------------------------------------------------------------------
+# Instrument readout boxes
+# ---------------------------------------------------------------------------
+
+ReadoutRow = tuple[str, str, tuple[int, int, int] | None]   # (word, value, bar colour)
+
+
+def _readout_sizes(scale: float) -> tuple[int, int, float]:
+    zs = max(6, int(round(theme.LABEL_ZONE_SIZE * scale)))
+    vs = max(8, int(round(theme.LABEL_VALUE_SIZE * scale)))
+    return zs, vs, theme.LABEL_LETTER_SPACING * scale
+
+
+def readout_size(rows: Sequence[ReadoutRow], *, scale: float = 1.0, min_width: int | None = None
+                 ) -> tuple[int, int, int, int]:
+    """``(box_w, box_h, word_col_w, value_col_w)`` of :func:`draw_readout` for ``rows``."""
+    zs, vs, ls = _readout_sizes(scale)
+    px, py = int(round(theme.LABEL_PAD[0] * scale)), int(round(theme.LABEL_PAD[1] * scale))
+    ww = max([uitext.text_size(w.upper(), theme.LABEL_FONT_ZONE, zs, letter_spacing=ls)[0]
+              for w, _v, _c in rows if w] or [0])
+    vw = max([uitext.text_size(v, theme.LABEL_FONT_VALUE, vs)[0] for _w, v, _c in rows if v] or [0])
+    row_h = uitext.text_size("0", theme.LABEL_FONT_VALUE, vs)[1] + 1
+    gap = int(round(10 * scale)) if ww and vw else 0
+    w = theme.LABEL_BAR_W + px + ww + gap + vw + px
+    if min_width is not None:
+        w = max(w, int(min_width))
+    h = py * 2 + row_h * len(rows)
+    return w, h, ww, vw
+
+
+def draw_readout(img: np.ndarray, xy: tuple[int, int], rows: Sequence[ReadoutRow], anchor: str = "lt", *,
+                 scale: float = 1.0, min_width: int | None = None,
+                 word_color: tuple[int, int, int] | None = None,
+                 value_color: tuple[int, int, int] | None = None) -> tuple[int, int, int, int]:
+    """Instrument-style readout box; returns its ``(x0, y0, x1, y1)``.
+
+    Each row is ``(word, value, bar_bgr)``: the word is printed in small
+    letter-spaced UPPERCASE (``theme.LABEL_FONT_ZONE``) on the left, the
+    value in a monospaced font (``theme.LABEL_FONT_VALUE``) right-aligned on
+    the right edge so the digits and the unit of every row line up. The box
+    is a translucent dark rectangle (``theme.LABEL_BACKING_*``) with a
+    ``theme.LABEL_BAR_W`` px bar on its left in the colour of each row.
+    ``anchor`` positions the box like :func:`cylvision.ui.text.draw_text`
+    (``"lt"``, ``"lm"``, ``"rb"``...); ``min_width`` widens the box so that
+    several boxes share the same right edge; ``scale`` multiplies the theme
+    font sizes.
+    """
+    if not rows:
+        return (int(xy[0]), int(xy[1]), int(xy[0]), int(xy[1]))
+    H, W = img.shape[:2]
+    zs, vs, ls = _readout_sizes(scale)
+    px, py = int(round(theme.LABEL_PAD[0] * scale)), int(round(theme.LABEL_PAD[1] * scale))
+    w, h, _ww, _vw = readout_size(rows, scale=scale, min_width=min_width)
+    x0, y0 = uitext._origin(xy, w, h, anchor)
+    x1, y1 = x0 + w - 1, y0 + h - 1
+    uitext.fill_rect_alpha(img, x0, y0, x1, y1, theme.LABEL_BACKING_BGR, theme.LABEL_BACKING_ALPHA,
+                           radius=theme.LABEL_BACKING_RADIUS)
+    row_h = (h - 2 * py) // len(rows)
+    bar_w = int(theme.LABEL_BAR_W)
+    wc = theme.LABEL_ZONE_BGR if word_color is None else word_color
+    vc = theme.LABEL_BGR if value_color is None else value_color
+    for i, (word, value, bar) in enumerate(rows):
+        ry0 = y0 + py + i * row_h
+        if bar is not None and bar_w > 0:
+            by0 = y0 if i == 0 else ry0
+            by1 = y1 if i == len(rows) - 1 else ry0 + row_h - 1
+            bx0, bx1 = max(0, x0), min(W - 1, x0 + bar_w - 1)
+            if bx1 >= bx0 and 0 <= by0 <= by1 < H:
+                img[max(0, by0):by1 + 1, bx0:bx1 + 1] = bar
+        if word:
+            uitext.draw_text(img, word.upper(), (x0 + bar_w + px, ry0 + row_h // 2), theme.LABEL_FONT_ZONE, zs,
+                             wc, "lm", letter_spacing=ls, shadow=theme.LABEL_TEXT_SHADOW_BGR)
+        if value:
+            uitext.draw_text(img, value, (x1 - px + 1, ry0 + row_h // 2), theme.LABEL_FONT_VALUE, vs,
+                             vc, "rm", shadow=theme.LABEL_TEXT_SHADOW_BGR)
+    return x0, y0, x1, y1
 
 
 def wash_zones(img: np.ndarray, x0: int, x1: int, y_upper: int | None, y_lower: int | None,
@@ -208,58 +328,52 @@ def volume_labels(result: InterfaceResult, model_fn: Callable[[Any], Any] | None
     return out
 
 
-def _label_text(img: np.ndarray, text: str, org: tuple[int, int], *, font_scale: float,
-                thick: int, color: tuple[int, int, int] = theme.LABEL_BGR) -> None:
-    """Outlined label (white on a black halo) legible on any background."""
-    cv2.putText(img, text, org, BRACE_FONT, font_scale, theme.LABEL_OUTLINE_BGR, thick + 2, cv2.LINE_AA)
-    cv2.putText(img, text, org, BRACE_FONT, font_scale, color, thick, cv2.LINE_AA)
+def readout_rows(result: InterfaceResult, model_fn: Callable[[Any], Any] | None,
+                 zones: Sequence[str] = ("total", "foam", "liquid")) -> dict[str, ReadoutRow]:
+    """``{"foam": ("foam", "440 mL", peach), ...}``: the readout rows of the zones found.
 
-
-def _fit_label(text: str, max_w: int, font_scale: float, thick: int) -> tuple[str, int, int] | None:
-    """``(text, w, h)`` of the longest of ``text`` / its short form that fits ``max_w``."""
-    short = text.split(" ", 1)[1] if " " in text and text.split(" ", 1)[1].endswith("mL") else text
-    for cand in (text, short):
-        (tw, th), _ = cv2.getTextSize(cand, BRACE_FONT, font_scale, thick)
-        if tw <= max_w:
-            return cand, tw, th
-    return None
+    Same rule as :func:`volume_labels` (a zone needs its interfaces; the
+    value is empty without a model). ``zones`` selects and orders the keys.
+    """
+    labels = volume_labels(result, model_fn)
+    out: dict[str, ReadoutRow] = {}
+    for z in zones:
+        if z not in labels:
+            continue
+        parts = labels[z].split(" ", 1)
+        out[z] = (z, parts[1] if len(parts) > 1 else "", ZONE_BAR_BGR.get(z))
+    return out
 
 
 def draw_brace_right(img: np.ndarray, y_top: int, y_bot: int, x_anchor: int,
-                     label: str, color: tuple[int, int, int] = theme.BRACE_BGR,
-                     arm: int = 10, mid_arm: int = 14, font_scale: float = 0.7,
-                     font_thick: int = 1) -> None:
+                     color: tuple[int, int, int] = theme.BRACE_BGR,
+                     arm: int = 8, mid_arm: int = 10) -> tuple[int, int] | None:
     """Vertical ``}`` brace to the right of a zone, from ``y_top`` to ``y_bot``.
 
-    Straight white strokes with a black outline (scientific-illustration
-    style); the label is written to the right of the central tip::
+    Thin light strokes over a 1 px shadow; returns the ``(x, y)`` of the
+    central tip where the label goes, or ``None`` when nothing fits::
 
         x_anchor ---.
                     |
-                    |---- label
+                    |---- (tip)
                     |
                   --'
     """
     H, W = img.shape[:2]
     if y_bot - y_top < 4:
-        return
+        return None
     y_top = max(0, min(y_top, H - 1))
     y_bot = max(y_top + 1, min(y_bot, H - 1))
     y_mid = (y_top + y_bot) // 2
     x_main = x_anchor + arm
     x_tip = x_main + mid_arm
     if x_tip >= W:
-        return
+        return None
     _stroke_line(img, (x_anchor, y_top), (x_main, y_top), color)
     _stroke_line(img, (x_anchor, y_bot), (x_main, y_bot), color)
-    _stroke_line(img, (x_main, y_top), (x_main, y_mid), color)
-    _stroke_line(img, (x_main, y_mid), (x_main, y_bot), color)
+    _stroke_line(img, (x_main, y_top), (x_main, y_bot), color)
     _stroke_line(img, (x_main, y_mid), (x_tip, y_mid), color)
-    (tw, th), _base = cv2.getTextSize(label, BRACE_FONT, font_scale, font_thick)
-    text_x = x_tip + 6
-    text_y = y_mid + th // 2
-    if text_x + tw < W:
-        _stroke_text(img, label, (text_x, text_y), BRACE_FONT, font_scale, color, font_thick)
+    return x_tip, y_mid
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +422,7 @@ def annotate_interfaces(img_bgr: np.ndarray, result: InterfaceResult,
         Width of the mean lines at the output resolution; default
         :func:`mean_line_width` of the zoom.
     label_scale
-        Font scale of the zone labels (default ``theme.LABEL_FONT_SCALE``).
+        Multiplier of the theme font sizes of the zone readouts (default 1).
     """
     if img_bgr.ndim == 2:
         base = cv2.cvtColor(img_bgr, cv2.COLOR_GRAY2BGR)
@@ -401,37 +515,39 @@ def annotate_interfaces(img_bgr: np.ndarray, result: InterfaceResult,
         if y_lo is not None:
             dashed_hline(out, by(y_lo), theme.BOUND_LOWER_BGR, x_start=x_beg, x_stop=x_end + 1)
 
-    # Mean lines (thick, outlined) + inward arrow at the right edge of the crop.
+    # Mean lines (flat, shadowed) + filled triangle at the right edge of the crop.
     lw = mean_line_width(z) if line_w is None else max(1, int(line_w))
-    arrow_k = max(1, int(round(lw / 3)))
+    aw, ah = ARROW_W, ARROW_H + max(0, lw - theme.MEAN_LINE_W)
     for y_mean, color in ((result.y_upper, theme.UPPER_BGR), (result.y_lower, theme.LOWER_BGR)):
         if y_mean is None:
             continue
         yy = by(y_mean)
-        draw_mean_line(out, x_beg, x_end - ARROW_W * arrow_k, yy, color, lw)
-        draw_inward_arrow(out, x_end, yy, "right", color,
-                          arrow_w=ARROW_W * arrow_k, arrow_h=ARROW_H * arrow_k + lw)
+        draw_mean_line(out, x_beg, x_end - aw, yy, color, lw)
+        draw_inward_arrow(out, x_end, yy, "right", color, arrow_w=aw, arrow_h=ah)
 
-    # Zone labels ("foam 440 mL" between the interfaces, "liquid 213 mL" below).
+    # Zone readouts ("FOAM 440 mL" between the interfaces, "LIQUID 213 mL" below).
     if show_labels:
-        fs = theme.LABEL_FONT_SCALE if label_scale is None else float(label_scale)
-        ft = max(1, int(round(theme.LABEL_FONT_THICK * fs / theme.LABEL_FONT_SCALE)))
-        labels = volume_labels(result, model_fn)
-        max_w = (x_end - x_beg) - 12
+        sc = 1.0 if label_scale is None else float(label_scale)
+        rows = readout_rows(result, model_fn, ("foam", "liquid"))
+        max_w = (x_end - x_beg) - 8
         zones = []
-        if "foam" in labels and result.y_upper is not None and result.y_lower is not None:
-            zones.append((labels["foam"], by(result.y_upper), by(result.y_lower)))
-        if "liquid" in labels and result.y_lower is not None:
-            zones.append((labels["liquid"], by(result.y_lower), y_bot_px))
-        for text, r0, r1 in zones:
-            fit = _fit_label(text, max_w, fs, ft)
-            if fit is None or r1 - r0 < 4:
+        if "foam" in rows and result.y_upper is not None and result.y_lower is not None:
+            zones.append((rows["foam"], by(result.y_upper), by(result.y_lower)))
+        if "liquid" in rows and result.y_lower is not None:
+            zones.append((rows["liquid"], by(result.y_lower), y_bot_px))
+        for row, r0, r1 in zones:
+            # Drop the zone word when the full box does not fit the crop width.
+            fit = None
+            for cand in (row, ("", row[1], row[2])):
+                if not cand[1] and not cand[0]:
+                    continue
+                bw, bh, _, _ = readout_size([cand], scale=sc)
+                if bw <= max_w:
+                    fit = (cand, bw, bh)
+                    break
+            if fit is None or r1 - r0 < fit[2] + 6:
                 continue
-            txt, tw, th = fit
-            if r1 - r0 < th + 8:
-                continue
-            y_txt = (r0 + r1) // 2 + th // 2
-            _label_text(out, txt, (x_beg + 6, y_txt), font_scale=fs, thick=ft)
+            draw_readout(out, (x_beg + 4, (r0 + r1) // 2), [fit[0]], "lm", scale=sc)
     return out
 
 
@@ -637,13 +753,16 @@ def make_specimen_panel(frame_bgr: np.ndarray, calib_crop: Sequence[int],
     The frame is first resized by ``zoom`` (``INTER_AREA`` down, cubic up)
     and every stroke is drawn at the output resolution, so the lines, the
     wash and the text keep their size whatever the scale of the panel.
-    The two mean lines cross the crop band (thick, outlined, red = lower,
-    teal = upper) with inward arrows at the walls; the foam zone (between
-    the interfaces) and the liquid zone (lower interface to ``y_bottom``)
-    get the semi-transparent wash of :func:`wash_zones`; the braces to the
-    right carry ``labels[0]`` / ``labels[1]`` completed with the volumes
-    when ``model_fn`` is given (``"foam 440 mL"``), and a ``total`` label
-    sits at the upper interface.
+    The two mean lines cross the crop band (flat, shadowed, red = lower,
+    teal = upper) with filled triangles at the walls and a dotted leader
+    from the right wall to the brace; the foam zone (between the
+    interfaces) and the liquid zone (lower interface to ``y_bottom``) get
+    the semi-transparent wash of :func:`wash_zones`; the braces to the
+    right carry readout boxes (:func:`draw_readout`) for ``labels[0]`` /
+    ``labels[1]`` with the volumes when ``model_fn`` is given, and a
+    ``total`` readout sits at the upper interface. The three boxes share
+    one width so their numbers form a column. ``label_scale`` multiplies
+    the theme font sizes.
     """
     x_left0, x_right0, y_top0, y_bottom0 = (int(v) for v in calib_crop[:4])
     base = frame_bgr if frame_bgr.ndim == 3 else cv2.cvtColor(frame_bgr, cv2.COLOR_GRAY2BGR)
@@ -680,37 +799,54 @@ def make_specimen_panel(frame_bgr: np.ndarray, calib_crop: Sequence[int],
         cv2.rectangle(panel, (x_left, y_top), (x_right, y_bottom), theme.MASK_BGR, 1, cv2.LINE_AA)
 
     lw = mean_line_width(z) if line_w is None else max(1, int(line_w))
-    fs = theme.LABEL_FONT_SCALE if label_scale is None else float(label_scale)
-    ft = max(1, int(round(theme.LABEL_FONT_THICK * fs / theme.LABEL_FONT_SCALE)))
-    arrow_k = max(1, int(round(lw / 3)))
-    aw, ah = ARROW_W * arrow_k, ARROW_H * arrow_k + lw
+    sc = 1.0 if label_scale is None else float(label_scale)
+    aw, ah = ARROW_W, ARROW_H + max(0, lw - theme.MEAN_LINE_W)
 
-    vol = volume_labels(result, model_fn)
-    brace_x = x_right + 6
-    x_txt = brace_x + 10 + 14 + 6
-    if draw_braces:
-        foam_txt = vol.get("foam", labels[0]) if model_fn is not None else labels[0]
-        liq_txt = vol.get("liquid", labels[1]) if model_fn is not None else labels[1]
-        # Shrink the font (down to 2/3) then drop the zone name so that the
-        # labels fit in the margin right of the cylinder.
-        avail = W - x_txt - 4
-        fs_b, ft_b = fs, ft
-        for cand_fs in (fs, fs * 0.85, fs * 0.67):
-            ft_b = max(1, int(round(theme.LABEL_FONT_THICK * cand_fs / theme.LABEL_FONT_SCALE)))
-            widths = [cv2.getTextSize(t, BRACE_FONT, cand_fs, ft_b)[0][0] for t in (foam_txt, liq_txt)]
-            fs_b = cand_fs
-            if max(widths) <= avail:
+    # Readout rows of the three zones (bare zone names without a model).
+    rows = readout_rows(result, model_fn) if model_fn is not None else {}
+    if model_fn is None:
+        if yu is not None and yl is not None:
+            rows["total"] = ("total", "", ZONE_BAR_BGR["total"])
+            rows["foam"] = (labels[0], "", ZONE_BAR_BGR["foam"])
+        if yl is not None:
+            rows["liquid"] = (labels[1], "", ZONE_BAR_BGR["liquid"])
+    if not draw_braces:
+        rows = {}
+
+    brace_arm, brace_mid = int(round(8 * sc)) + 4, int(round(10 * sc)) + 2
+    brace_x = x_right + int(round(14 * sc)) + 6
+    x_txt = brace_x + brace_arm + brace_mid + 5
+    avail = W - x_txt - 3
+    # One shared width for the boxes (numbers right-aligned in a column);
+    # when the full boxes do not fit the margin, drop the zone words, then
+    # shrink, then give up on the labels.
+    box_w = 0
+    if rows:
+        for variant in ("full", "values", "none"):
+            if variant == "values":
+                rows = {k: ("", v, c) for k, (w, v, c) in rows.items() if v}
+            elif variant == "none":
+                rows = {}
                 break
-        else:
-            fit_f = _fit_label(foam_txt, avail, fs_b, ft_b)
-            fit_l = _fit_label(liq_txt, avail, fs_b, ft_b)
-            foam_txt = fit_f[0] if fit_f else foam_txt
-            liq_txt = fit_l[0] if fit_l else liq_txt
+            box_w = max([readout_size([r], scale=sc)[0] for r in rows.values()] or [0])
+            if box_w <= avail:
+                break
+    box_h = readout_size([("X", "0 mL", None)], scale=sc)[1] if rows else 0
+
+    # Braces (thin) and dotted leaders from the right wall to the brace.
+    tips: dict[str, tuple[int, int]] = {}
+    if draw_braces:
         if yu is not None and yl is not None and yl - yu >= 4:
-            draw_brace_right(panel, yu, yl, brace_x, foam_txt, font_scale=fs_b, font_thick=ft_b)
+            tip = draw_brace_right(panel, yu, yl, brace_x, arm=brace_arm, mid_arm=brace_mid)
+            if tip is not None:
+                tips["foam"] = tip
         if yl is not None and y_bottom - yl >= 4:
-            draw_brace_right(panel, yl, y_bottom, brace_x, liq_txt, font_scale=fs_b, font_thick=ft_b)
-        fs, ft = fs_b, ft_b
+            tip = draw_brace_right(panel, yl, y_bottom, brace_x, arm=brace_arm, mid_arm=brace_mid)
+            if tip is not None:
+                tips["liquid"] = tip
+        for yy, color in ((yu, theme.UPPER_BGR), (yl, theme.LOWER_BGR)):
+            if yy is not None and brace_x - 1 > x_right + 1:
+                dotted_hline(panel, x_right + 2, brace_x - 1, yy, color)
 
     for yy, color in ((yu, theme.UPPER_BGR), (yl, theme.LOWER_BGR)):
         if yy is None:
@@ -719,21 +855,25 @@ def make_specimen_panel(frame_bgr: np.ndarray, calib_crop: Sequence[int],
         draw_inward_arrow(panel, x_left, yy, "left", color, arrow_w=aw, arrow_h=ah)
         draw_inward_arrow(panel, x_right, yy, "right", color, arrow_w=aw, arrow_h=ah)
 
-    # "total ... mL" at the upper interface, to the right of the brace tip.
-    if draw_braces and model_fn is not None and yu is not None and yl is not None and "total" in vol:
-        fit = _fit_label(vol["total"], W - x_txt - 4, fs, ft)
-        if fit is not None:
-            txt, tw, th = fit
-            y_txt = yu - 6 if (yl - yu) < 3 * th else yu + th // 2
-            if y_txt - th >= 0:
-                _label_text(panel, txt, (x_txt, y_txt), font_scale=fs, thick=ft, color=theme.UPPER_BGR)
+    # Readout boxes: FOAM / LIQUID at the brace tips, TOTAL at the upper
+    # interface (above the line when the foam band is too thin to hold
+    # both the TOTAL and the FOAM boxes).
+    for key in ("foam", "liquid"):
+        if key in rows and key in tips:
+            draw_readout(panel, (x_txt, tips[key][1]), [rows[key]], "lm", scale=sc, min_width=box_w)
+    if "total" in rows and yu is not None and yl is not None:
+        if (yl - yu) >= int(2.2 * box_h):
+            draw_readout(panel, (x_txt, yu), [rows["total"]], "lm", scale=sc, min_width=box_w)
+        elif yu - box_h - 2 >= 0:
+            draw_readout(panel, (x_txt, yu - 2), [rows["total"]], "lb", scale=sc, min_width=box_w)
     return panel
 
 
 __all__ = [
-    "LABEL_HEIGHT", "SEP", "PANEL_LABELS",
-    "dashed_hline", "draw_inward_arrow", "draw_brace_right",
+    "LABEL_HEIGHT", "SEP", "PANEL_LABELS", "ZONE_BAR_BGR",
+    "dashed_hline", "dotted_hline", "draw_inward_arrow", "draw_brace_right",
     "mean_line_width", "draw_mean_line", "wash_zones", "volume_labels",
+    "readout_rows", "readout_size", "draw_readout",
     "annotate_interfaces", "make_gradient_panel", "make_threshold_panel",
     "make_highlight_panel", "make_label_strip", "make_panels",
     "make_info_strip", "make_specimen_panel",

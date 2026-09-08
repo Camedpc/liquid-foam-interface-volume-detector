@@ -62,7 +62,15 @@ from cylvision.detection import (  # noqa: E402
     make_label_strip,
     make_threshold_panel,
 )
-from cylvision.detection.panels import SEP, make_specimen_panel, volume_labels  # noqa: E402
+from cylvision.detection.panels import (  # noqa: E402
+    SEP,
+    draw_readout,
+    make_specimen_panel,
+    readout_rows,
+    readout_size,
+    volume_labels,
+)
+from cylvision.ui import text as uitext  # noqa: E402
 from cylvision.io import VideoSource, imread_unicode  # noqa: E402
 from cylvision.pipeline import (  # noqa: E402
     RunDir,
@@ -90,8 +98,15 @@ MAX_BYTES = 1_500_000
 SCREEN = (1920, 1080)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
-# Frames of the two runs used throughout (see the README captions).
-GREEN_FRAMES = {"empty": 8, "pouring": 30, "best": 108, "later": 300}
+# Frames of the two runs used throughout (see the README captions). The
+# green run is the "BL evolution" recording, pre-subsampled 1 frame in 60:
+# the pour starts at sub frame 22 (source frame 1347; nothing is detected
+# before frame ~26, so "pouring" = 30), the foam peaks at 39,
+# 108 is the reference frame, a 132 mL foam collapse happens between 380
+# and 400, the recording ends at 440.
+GREEN_FRAMES = {"empty": 8, "pouring": 30, "peak": 39, "best": 108, "later": 300,
+                "before_collapse": 380, "after_collapse": 400, "end": 440}
+GREEN_T0_FRAME = 22                 # default --t0-frame: times count from the start of the pour
 BLACK_FRAMES = {"early": 1032, "best": 2472, "mid": 6972, "late": 20972}
 BLACK_BATCH = (972, 40000, 60)      # start, end, step
 
@@ -111,6 +126,7 @@ class RunCtx:
     model_fn: Callable[..., Any]
     video: VideoSource
     time_scale: float = 1.0
+    t0_frame: int = 0               # frame whose time is 0 in the captions (start of the pour)
     _cache: dict[int, np.ndarray] = field(default_factory=dict, repr=False)
 
     def frame(self, idx: int) -> np.ndarray:
@@ -122,7 +138,14 @@ class RunCtx:
         return self._cache[idx]
 
     def t_sec(self, idx: int) -> float:
-        return idx * self.time_scale / self.video.fps
+        """Time of frame ``idx`` in source seconds, counted from ``t0_frame``."""
+        return (idx - self.t0_frame) * self.time_scale / self.video.fps
+
+    def t_label(self, idx: int) -> str:
+        t = self.t_sec(idx)
+        if abs(t) < 600:
+            return f"t = {t:.0f} s"
+        return f"t = {t / 60:.1f} min"
 
     def detect(self, idx: int, params: DetectionParams | None = None
                ) -> tuple[np.ndarray, InterfaceResult, np.ndarray]:
@@ -142,7 +165,7 @@ def fill_from_calibration(params: DetectionParams, calib: Calibration) -> Detect
 
 
 def load_ctx(name: str, run_dir: Path, video_path: Path, params_path: Path | None,
-             time_scale: float) -> RunCtx:
+             time_scale: float, t0_frame: int = 0) -> RunCtx:
     run = RunDir(run_dir)
     if not run.has_calibration():
         sys.exit(f"{name}: no calib.json in {run.root}")
@@ -155,7 +178,7 @@ def load_ctx(name: str, run_dir: Path, video_path: Path, params_path: Path | Non
     video = VideoSource(video_path)
     print(f"{name}: {video}  crop x [{calib.x_left}, {calib.x_right}]  polarity {params.polarity}")
     return RunCtx(name=name, run=run, calib=calib, params=params, model_fn=build_model_fn(calib),
-                  video=video, time_scale=time_scale)
+                  video=video, time_scale=time_scale, t0_frame=int(t0_frame))
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +398,9 @@ def source_of(ctx: RunCtx, frame: int | None, params: DetectionParams | None = N
     if frame is not None:
         d["frame"] = int(frame)
         d["t_sec"] = round(ctx.t_sec(frame), 2)
+    if ctx.t0_frame:
+        d["t0_frame"] = int(ctx.t0_frame)
+        d["time_origin"] = f"t = 0 at frame {ctx.t0_frame} (start of the pour)"
     d["params"] = (params or ctx.params).to_dict()
     d.update(extra)
     return d
@@ -384,7 +410,23 @@ def source_of(ctx: RunCtx, frame: int | None, params: DetectionParams | None = N
 # Batches (cached in the work dir)
 # ---------------------------------------------------------------------------
 
-def run_batches(g: RunCtx, b: RunCtx, work_dir: Path, skip: bool) -> dict[str, list[dict]]:
+def shift_time(rows: list[dict], ctx: RunCtx) -> list[dict]:
+    """Move ``t_sec`` of batch rows to the caption time origin (``ctx.t0_frame``)."""
+    if not ctx.t0_frame:
+        return rows
+    dt = ctx.t0_frame * ctx.time_scale / ctx.video.fps
+    out = []
+    for r in rows:
+        r = dict(r)
+        if r.get("t_sec") is not None and math.isfinite(float(r["t_sec"])):
+            r["t_sec"] = float(r["t_sec"]) - dt
+        out.append(r)
+    return out
+
+
+def run_batches(g: RunCtx, b: RunCtx, work_dir: Path, skip: bool,
+                reuse: Sequence[str] = ()) -> dict[str, list[dict]]:
+    """Batch rows of the three specs; ``skip`` reuses every cache, ``reuse`` only the named runs."""
     work_dir.mkdir(parents=True, exist_ok=True)
     out: dict[str, list[dict]] = {}
     specs = {
@@ -394,9 +436,9 @@ def run_batches(g: RunCtx, b: RunCtx, work_dir: Path, skip: bool) -> dict[str, l
     }
     for key, (ctx, start, end, step) in specs.items():
         csv_path = work_dir / f"{key}.csv"
-        if skip:
+        if skip or ctx.name in reuse:
             if csv_path.exists():
-                out[key] = read_csv(csv_path)
+                out[key] = shift_time(read_csv(csv_path), ctx)
                 print(f"batch {key}: {len(out[key])} rows read from {csv_path}")
             else:
                 print(f"batch {key}: no cache at {csv_path} (skipped)")
@@ -406,6 +448,7 @@ def run_batches(g: RunCtx, b: RunCtx, work_dir: Path, skip: bool) -> dict[str, l
         rows = process_video(ctx.video, ctx.calib, ctx.params, ctx.model_fn, start=start, end=end,
                              frame_step=step, progress=True, time_scale=ctx.time_scale)
         write_csv(rows, csv_path)
+        rows = shift_time(rows, ctx)
         out[key] = rows
         summ = summarize_rows(rows)
         print(f"  done in {time.perf_counter() - t0:.0f} s -> {csv_path}")
@@ -423,8 +466,12 @@ def run_batches(g: RunCtx, b: RunCtx, work_dir: Path, skip: bool) -> dict[str, l
 # ---------------------------------------------------------------------------
 
 HERO_HEIGHT = 820          # height (px) of the four hero panels before the final width limit
-TIMELINE_HEIGHT = 640      # height (px) of every timeline panel
-TIMELINE_GREEN = (30, 60, 108, 300, 600, 1000)   # frames of the green run (1 frame = 60 source frames)
+TIMELINE_HEIGHT = 520      # height (px) of every timeline panel (7 panels fit MAX_WIDTH without downscaling)
+TIMELINE_GREEN = (30, 39, 108, 200, 300, 380, 400)   # frames of the green run (1 frame = 60 source frames)
+GIF_FRAMES = (22, 30, 39, 50, 60, 80, 108, 150, 200, 250, 300, 350, 380, 400, 440)
+GIF_HEIGHT = 620           # height (px) of every GIF frame
+GIF_FRAME_MS = 550         # display time of a GIF frame; the last one stays 4x longer
+GIF_MAX_BYTES = 5_000_000
 
 
 def cylinder_window(ctx: RunCtx, frame_w: int, *, margin_left: int, margin_right: int) -> tuple[int, int]:
@@ -447,11 +494,10 @@ def detected_panel(ctx: RunCtx, idx: int, *, height: int, margin_left: int, marg
     H, W = frame.shape[:2]
     _, res, _ = ctx.detect(idx)
     z = height / H
-    fs = theme.LABEL_FONT_SCALE if label_scale is None else float(label_scale)
-    ft = max(1, int(round(theme.LABEL_FONT_THICK * fs / theme.LABEL_FONT_SCALE)))
+    fs = 1.0 if label_scale is None else float(label_scale)
     if pad_right is None:
-        (tw, _), _ = cv2.getTextSize("liquid 8888 mL", cv2.FONT_HERSHEY_DUPLEX, fs, ft)
-        pad_right = 6 + 10 + 14 + 6 + tw + 12
+        bw = readout_size([("liquid", "888 mL", None)], scale=fs)[0]
+        pad_right = int(round(14 * fs)) + 6 + int(round(8 * fs)) + 4 + int(round(10 * fs)) + 2 + 5 + bw + 10
     x0, x1 = cylinder_window(ctx, W, margin_left=margin_left, margin_right=margin_right)
     pad_native = int(math.ceil(pad_right / z))
     extra = max(0, x1 + pad_native - W)
@@ -493,14 +539,14 @@ def fig_hero(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
         raw = raw_panel(ctx, idx, height=HERO_HEIGHT, margin_left=ml, margin_right=mr)
         setup = "back-lit green screen" if ctx.name == "green" else "front-lit black background"
         imgs += [raw, det]
-        labels += [["raw frame", setup, f"frame {idx}, t = {ctx.t_sec(idx):.0f} s"],
+        labels += [["raw frame", setup, f"frame {idx}, {ctx.t_label(idx)}"],
                    ["detected", *zone_lines(res, ctx.model_fn)]]
         src[ctx.name] = source_of(ctx, idx, y_lower=res.y_lower, y_upper=res.y_upper,
                                   n_lower=res.n_lower, n_upper=res.n_upper)
     m.save_png("hero", side_by_side(imgs, labels, gap=10),
                "Raw frame -> detected, on the green-screen run (left pair) and the black-background run "
-               "(right pair): thick red / teal mean lines at the liquid/foam and foam/air interfaces, "
-               "peach wash on the foam band, blue wash on the liquid, volumes next to the zones.",
+               "(right pair): flat red / teal mean lines at the liquid/foam and foam/air interfaces, "
+               "peach wash on the foam band, blue wash on the liquid, readout boxes with the volumes.",
                {"runs": src, "layout": "raw | detected | raw | detected, cropped around the cylinder"})
 
     canvas = compose_canvas(g.frame(gi), g.calib, g.params, g.model_fn, show_specimen=True, inline=True,
@@ -512,24 +558,98 @@ def fig_hero(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
 
 
 def fig_timeline(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
-    """``timeline_green.png``: the foam band shrinking over the green run."""
+    """``timeline_green.png`` (static strip) and ``detection_timeline.gif`` (animated)."""
     imgs, labels, frames = [], [], []
     for idx in TIMELINE_GREEN:
         if idx >= g.video.n_frames:
             continue
-        det, res = detected_panel(g, idx, height=TIMELINE_HEIGHT, margin_left=60, margin_right=16,
-                                  label_scale=0.55)
+        det, res = detected_panel(g, idx, height=TIMELINE_HEIGHT, margin_left=40, margin_right=8,
+                                  label_scale=0.85)
         imgs.append(det)
         lab = volume_labels(res, g.model_fn)
         t = g.t_sec(idx)
-        t_txt = f"t = {t:.0f} s" if t < 120 else f"t = {t / 60:.1f} min"
-        labels.append([f"frame {idx}   {t_txt}", lab.get("foam", "no foam band"), lab.get("liquid", "")])
+        labels.append([f"frame {idx}   {g.t_label(idx)}",
+                       lab.get("foam", "pouring: foam top only" if res.y_upper is not None else "no interface"),
+                       lab.get("liquid", "")])
         frames.append({"frame": idx, "t_sec": round(t, 2), "y_lower": res.y_lower, "y_upper": res.y_upper,
                        "n_lower": res.n_lower, "n_upper": res.n_upper})
     m.save_png("timeline_green", side_by_side(imgs, labels, gap=8),
-               "Six frames of the green-screen run, each with the detected interfaces, the foam wash and the "
-               "volumes: the pour, then the foam band shrinking while the liquid level rises.",
+               f"{len(imgs)} frames of the green-screen run, each with the detected interfaces, the foam wash "
+               "and the readouts: the pour, the foam peak, the band shrinking while the liquid drains out of "
+               "it, and the collapse between frames 380 and 400. Times count from the start of the pour.",
                source_of(g, None, frames=frames))
+    fig_gif(g, m)
+
+
+def gif_frame(ctx: RunCtx, idx: int) -> tuple[np.ndarray, InterfaceResult]:
+    """One GIF frame: a header with the readout box (t + the three volumes) over the specimen panel."""
+    det, res = detected_panel(ctx, idx, height=GIF_HEIGHT, margin_left=54, margin_right=10, label_scale=0.85)
+    t = ctx.t_sec(idx)
+    t_txt = f"{t:.0f} s" if abs(t) < 600 else f"{t / 60:.1f} min"
+    rows = [("time", t_txt, None)]
+    vol = readout_rows(res, ctx.model_fn)
+    for key in ("total", "foam", "liquid"):
+        rows.append(vol.get(key, (key, "--", None)))
+    w_box = readout_size([("liquid", "8888 mL", None)], scale=0.85)[0]
+    box_h = readout_size(rows, scale=0.85)[1]
+    header = np.empty((box_h + 12, det.shape[1], 3), dtype=np.uint8)
+    header[:] = theme.BG_BGR
+    draw_readout(header, (header.shape[1] - 6, 6), rows, "rt", scale=0.85, min_width=w_box)
+    uitext.draw_text(header, f"frame {idx}", (8, 8), theme.LABEL_FONT_ZONE, 12, theme.TEXT_BGR, "lt")
+    uitext.draw_text(header, "green screen", (8, 26), theme.LABEL_FONT_ZONE, 11, theme.SUBTEXT_BGR, "lt")
+    uitext.draw_text(header, "1 frame = 60 src", (8, 42), theme.LABEL_FONT_ZONE, 11, theme.SUBTEXT_BGR, "lt")
+    return np.concatenate([header, det], axis=0), res
+
+
+def fig_gif(g: RunCtx, m: Manifest) -> None:
+    import imageio.v3 as iio
+
+    frames, meta = [], []
+    for idx in GIF_FRAMES:
+        if idx >= g.video.n_frames:
+            continue
+        img, res = gif_frame(g, idx)
+        frames.append(img)
+        meta.append({"frame": idx, "t_sec": round(g.t_sec(idx), 2), "y_lower": res.y_lower,
+                     "y_upper": res.y_upper})
+    if not frames:
+        return
+    w = max(f.shape[1] for f in frames)
+    h = max(f.shape[0] for f in frames)
+    frames = [_pad_to(f, w, h) for f in frames]
+    durations = [GIF_FRAME_MS] * len(frames)
+    durations[-1] = GIF_FRAME_MS * 4
+    out = m.out_dir / "detection_timeline.gif"
+    rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in frames]
+    scale = 1.0
+    while True:
+        data = iio.imwrite("<bytes>", rgb, extension=".gif", duration=durations, loop=0)
+        if len(data) <= GIF_MAX_BYTES or scale < 0.5:
+            break
+        scale *= 0.85
+        rgb = [cv2.resize(cv2.cvtColor(f, cv2.COLOR_BGR2RGB), (int(w * scale), int(h * scale)),
+                          interpolation=cv2.INTER_AREA) for f in frames]
+    out.write_bytes(data)
+    m.entries[out.name] = {
+        "file": out.name,
+        "size_px": [int(w * scale), int(h * scale)],
+        "bytes": len(data),
+        "description": f"Animated timeline of the green-screen run: {len(frames)} frames from the pour to "
+                       "after the foam collapse, each the specimen panel (wash, flat lines, readouts) with a "
+                       f"readout box giving t and the three volumes; {GIF_FRAME_MS} ms per frame, the last one "
+                       "held longer. Times count from the start of the pour.",
+        "source": source_of(g, None, frames=meta, frame_ms=GIF_FRAME_MS),
+    }
+    print(f"  {out.name:<34s} {int(w * scale):>5d} x {int(h * scale):<5d} {len(data) / 1e6:5.2f} MB  ({len(frames)} frames)")
+
+
+def _pad_to(img: np.ndarray, w: int, h: int) -> np.ndarray:
+    if img.shape[1] == w and img.shape[0] == h:
+        return img
+    out = np.empty((h, w, 3), dtype=np.uint8)
+    out[:] = theme.BG_BGR
+    out[:img.shape[0], :img.shape[1]] = img
+    return out
 
 
 def fig_setup(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
@@ -620,17 +740,17 @@ def param_composite(ctx: RunCtx, idx: int, name: str, values: Sequence[Any], *, 
 
 def fig_params(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
     gi, bi = GREEN_FRAMES["best"], BLACK_FRAMES["best"]
-    gp = GREEN_FRAMES["pouring"]
     g_crop, g_ref, _ = g.detect(gi)
     b_crop, b_ref, _ = b.detect(bi)
-    _, gp_ref, _ = g.detect(gp)
     Hg, Hb = g_crop.shape[0], b_crop.shape[0]
     g_win = window(g_ref, Hg, 230, 230)
     b_win = window(b_ref, Hb, 110, 110)
+    yu_g = int(g_ref.y_upper) if g_ref.y_upper is not None else 0
+    g_top = (max(0, yu_g - 150), min(Hg, yu_g + 250))      # around the foam top
     W_g = g_crop.shape[1]
 
     specs: list[tuple[str, RunCtx, int, str, Sequence[Any], float, tuple[int, int], Sequence[str] | None, str]] = [
-        ("param_T_lower", g, gi, "T_lower", [4, 16], 0.62, g_win,
+        ("param_T_lower", g, gi, "T_lower", [4, 40], 0.62, g_win,
          ["too low: weak gradients pass", "clean"],
          "Threshold of the lower (liquid/foam) interface: too low validates weak gradients in every "
          "column (false positives in the mask), the tuned value keeps only the true interface."),
@@ -639,9 +759,10 @@ def fig_params(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
          "Threshold of the upper (foam/air) interface: the bottom-up search from the lower interface stops "
          "on the first row above threshold, so a low value catches bubble edges right above the beer."),
         ("param_r_lower", g, gi, "r_lower", [10, 64, W_g // 2], 0.5, g_win,
-         ["narrow band", "tuned", "whole crop width"],
-         "Half-width of the averaging band of the lower interface: a narrow band uses few columns, "
-         "the whole width includes the walls where refraction and the meniscus bend the interface."),
+         ["narrow band", "medium band", "tuned: whole crop width"],
+         "Half-width of the averaging band of the lower interface: a narrow band uses few columns and "
+         "follows the local bend of the interface; the whole width (tuned here) averages every column "
+         "that passes the threshold, the walls being excluded by the threshold itself."),
         ("param_blur_sigma", g, gi, "blur_sigma", [0.5, 5.7], 0.62, g_win,
          ["almost no smoothing: bubble edges win", "tuned"],
          "Gaussian smoothing: with a small sigma every bubble edge competes with the interface and the "
@@ -650,11 +771,11 @@ def fig_params(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
          ["off: foam texture in the gradient", "on: texture washed out"],
          "Horizontal box filter: it averages every row along x, keeping the horizontal interfaces and "
          "washing out the vertical bubble texture of the foam."),
-        ("param_min_h_upper", g, gp, "min_h_upper", [0, 3], 0.62, window(gp_ref, Hg, 220, 60),
-         ["off: bubble edges 1-2 px tall accepted", "on: blobs < 3 px tall rejected"],
-         "Connected-component height filter of the upper interface, during the pour (foam full of large "
-         "bubbles): without it the bottom-up search stops on thin bubble edges inside the foam and the "
-         "upper interface drops by more than 100 px; requiring blobs at least 3 rows tall keeps the foam top."),
+        ("param_min_h_upper", g, gi, "min_h_upper", [0, 15], 0.62, g_top,
+         ["off: thin bubble edges accepted", "on: blobs < 15 px tall rejected"],
+         "Connected-component height filter of the upper interface: without it the bottom-up search stops "
+         "on thin bubble edges inside the foam, below the true foam top; requiring blobs at least 15 rows "
+         "tall keeps the foam top (the reference frame, foam full of large bubbles under a bubbly top)."),
         ("param_y_top", b, bi, "y_top", [200, 34], 0.8, window(b_ref, Hb, None, 110),
          ["too low: the foam top itself is masked", "tuned: rows above 34 ignored"],
          "Top gradient mask: rows above y_top are zeroed (magenta line). The glass rim of both runs lies "
@@ -671,9 +792,10 @@ def fig_params(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
          "Axis column inside the crop: the band is centred on cx, so a wrong cx samples the interface "
          "near a wall (meniscus, refraction) instead of the centre."),
         ("param_channel", g, gi, "channel", ["gray", "G", "R"], 0.5, g_win,
-         ["", "most contrast on a green screen", "almost no signal"],
-         "Grey level used by the detector: the green channel carries the contrast of a green screen, "
-         "the red channel almost nothing."),
+         ["tuned", "more columns, foam top lower", "almost no signal"],
+         "Grey level used by the detector: gray (tuned) and the green channel agree on the lower interface; "
+         "G validates more upper columns but stops on bubble edges below the foam top; the red channel "
+         "carries almost no signal on a green screen."),
     ]
     for name, ctx, idx, pname, values, scale, rows, notes, desc in specs:
         img, variants = param_composite(ctx, idx, pname, values, scale=scale, rows=rows, notes=notes)
@@ -695,7 +817,7 @@ def fig_calibration_clicks(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
     pts += [(x, y) for _V, x, y in grads[:3]]
     cursor = (grads[3][1], grads[3][2])
     img = render_click_overlay(frame, prompts, pts, cursor, with_magnifier=True)
-    m.save_png("calibration_clicks", resize_to_width(img, 900),
+    m.save_png("calibration_clicks", resize_to_width(img, min(900, img.shape[1])),
                "Calibration click window after the 4 ROI clicks (left / right edges, y_top, y_bottom) and "
                "the first 3 graduations; the cursor and the x8 loupe sit on the next graduation (400 mL).",
                source_of(g, idx) | {"params": None, "placed": {"roi": pts[:4], "graduations_ml": [v for v, _, _ in grads[:3]]},
@@ -882,7 +1004,7 @@ def fig_uncertainty_method(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
 
 FIGURES: dict[str, tuple[Callable[..., None], tuple[str, ...]]] = {
     "hero": (fig_hero, ("hero", "tuner_canvas_inline")),
-    "timeline": (fig_timeline, ("timeline_green",)),
+    "timeline": (fig_timeline, ("timeline_green", "detection_timeline")),
     "setup": (fig_setup, ("setup_black_background", "setup_green_screen")),
     "polarity": (fig_polarity, ("polarity_lower_darker", "polarity_lower_brighter")),
     "polarity_wrong": (fig_polarity_wrong, ("polarity_wrong",)),
@@ -927,7 +1049,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="where the batch CSVs are cached (never inside docs/images)")
     p.add_argument("--frame-scale-green", type=float, default=60.0,
                    help="source frames per frame of the green video (pre-subsampled), default 60")
+    p.add_argument("--t0-frame", type=int, default=GREEN_T0_FRAME,
+                   help="green frame whose time is 0 in the captions (start of the pour), default %(default)s")
     p.add_argument("--skip-batch", action="store_true", help="reuse the cached batch CSVs instead of processing")
+    p.add_argument("--reuse-batch", type=str, default="",
+                   help="comma-separated runs (green, black) whose cached batch CSV is reused")
     p.add_argument("--panel-screenshot", action="store_true",
                    help="open the Tk control panel briefly and grab control_panel.png")
     p.add_argument("--only", type=str, default=None,
@@ -957,12 +1083,14 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = Manifest(out_dir)
 
-    g = load_ctx("green", args.green_run, args.green_video, args.green_params, args.frame_scale_green)
+    g = load_ctx("green", args.green_run, args.green_video, args.green_params, args.frame_scale_green,
+                 t0_frame=args.t0_frame)
     b = load_ctx("black", args.black_run, args.black_video, args.black_params, 1.0)
     try:
         batches: dict[str, list[dict]] = {}
         if any(x in groups for x in ("frame_step", "batch", "uncertainty")):
-            batches = run_batches(g, b, args.work_dir, args.skip_batch)
+            batches = run_batches(g, b, args.work_dir, args.skip_batch,
+                                  reuse=[x.strip() for x in args.reuse_batch.split(",") if x.strip()])
         for name in groups:
             fn, _files = FIGURES[name]
             print(f"[{name}]")

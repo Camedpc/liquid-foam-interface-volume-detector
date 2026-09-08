@@ -122,24 +122,55 @@ BRACE_BGR: tuple[int, int, int] = (245, 245, 245)
 BRACE_OUTLINE_BGR: tuple[int, int, int] = (0, 0, 0)
 
 # ---------------------------------------------------------------------------
-# Interface rendering: "filled zones + volume labels"
+# Interface rendering: "flat lines + filled zones + instrument readout"
 # ---------------------------------------------------------------------------
 # The mean interface lines are drawn at the OUTPUT resolution (after the
 # zoom), so their width is a number of screen / README pixels, not of frame
-# pixels: ``MEAN_LINE_W`` px of colour inside a ``MEAN_LINE_OUTLINE_W`` px
-# dark outline on each side. The zones between the interfaces receive a
-# semi-transparent wash (foam between the two interfaces, liquid between the
-# lower interface and ``y_bottom``) so the foam band reads as a shaded block
-# at a glance; the alphas stay modest so the raw image remains visible.
-MEAN_LINE_W: int = 6
-MEAN_LINE_OUTLINE_W: int = 1
+# pixels: a flat ``MEAN_LINE_W`` px solid stroke with square ends, no
+# outline, and a ``MEAN_LINE_SHADOW_W`` px darker line directly below it
+# (``MEAN_LINE_SHADOW_BGR``) that keeps it visible on green and on white.
+# At the walls the line ends in small filled triangles (``TRIANGLE_W`` /
+# ``TRIANGLE_H`` px); in the specimen panel a 1 px dotted extension
+# (``LEADER_DOT`` / ``LEADER_GAP``) runs from the wall to the brace.
+MEAN_LINE_W: int = 3
+MEAN_LINE_SHADOW_W: int = 1
+MEAN_LINE_SHADOW_BGR: tuple[int, int, int] = (12, 12, 18)
+TRIANGLE_W: int = 7
+TRIANGLE_H: int = 7
+LEADER_DOT: int = 1
+LEADER_GAP: int = 3
+# The zones between the interfaces receive a semi-transparent wash (foam
+# between the two interfaces, liquid between the lower interface and
+# ``y_bottom``) so the foam band reads as a shaded block at a glance; the
+# alphas stay modest so the raw image remains visible under the thin lines.
 FOAM_WASH_BGR: tuple[int, int, int] = hex_to_bgr(PALETTE["peach"])
 LIQUID_WASH_BGR: tuple[int, int, int] = hex_to_bgr(PALETTE["blue"])
-WASH_ALPHA_FOAM: float = 0.30
-WASH_ALPHA_LIQUID: float = 0.18
-# Volume labels printed next to the zones ("foam 440 mL"): white text with a
-# black outline so it is legible on green, black and white.
-LABEL_BGR: tuple[int, int, int] = (250, 250, 250)
+WASH_ALPHA_FOAM: float = 0.26
+WASH_ALPHA_LIQUID: float = 0.16
+# Braces of the specimen panel: 1 px light stroke over a 1 px shadow.
+BRACE_W: int = 1
+
+# Volume labels ("instrument readout"): the zone word in small UPPERCASE
+# DejaVu Sans with letter spacing, the number in DejaVu Sans Mono (tabular
+# digits) right-aligned on the unit so the three volumes form a column; a
+# translucent dark backing box with a 2 px colour bar on its left in the
+# interface colour. Fonts are the TrueType files shipped with matplotlib
+# (see ``cylvision.ui.text``); sizes are in output px.
+LABEL_FONT_ZONE: str = "DejaVuSans"
+LABEL_FONT_VALUE: str = "DejaVuSansMono"
+LABEL_ZONE_SIZE: int = 11
+LABEL_VALUE_SIZE: int = 17
+LABEL_LETTER_SPACING: float = 1.6
+LABEL_BGR: tuple[int, int, int] = (245, 245, 245)         # numbers
+LABEL_ZONE_BGR: tuple[int, int, int] = (200, 205, 215)    # zone word
+LABEL_BACKING_BGR: tuple[int, int, int] = (18, 18, 26)
+LABEL_BACKING_ALPHA: float = 0.62
+LABEL_BACKING_RADIUS: int = 3
+LABEL_BAR_W: int = 2
+LABEL_PAD: tuple[int, int] = (7, 3)
+LABEL_TEXT_SHADOW_BGR: tuple[int, int, int] | None = None
+# Legacy names kept for callers of the previous "outlined Hershey" style.
+MEAN_LINE_OUTLINE_W: int = 0
 LABEL_OUTLINE_BGR: tuple[int, int, int] = (0, 0, 0)
 LABEL_FONT_SCALE: float = 0.75
 LABEL_FONT_THICK: int = 2
@@ -154,7 +185,12 @@ __all__ = [
     "MASK_BGR", "BOUND_UPPER_BGR", "BOUND_LOWER_BGR", "EXTRA_LOWEST_BGR",
     "EXTRA_BLOB_BGR", "STRIP_BG_BGR", "STRIP_TEXT_BGR", "SEPARATOR_BGR",
     "BRACE_BGR", "BRACE_OUTLINE_BGR",
-    "MEAN_LINE_W", "MEAN_LINE_OUTLINE_W", "FOAM_WASH_BGR", "LIQUID_WASH_BGR",
-    "WASH_ALPHA_FOAM", "WASH_ALPHA_LIQUID", "LABEL_BGR", "LABEL_OUTLINE_BGR",
+    "MEAN_LINE_W", "MEAN_LINE_SHADOW_W", "MEAN_LINE_SHADOW_BGR", "TRIANGLE_W", "TRIANGLE_H",
+    "LEADER_DOT", "LEADER_GAP", "FOAM_WASH_BGR", "LIQUID_WASH_BGR",
+    "WASH_ALPHA_FOAM", "WASH_ALPHA_LIQUID", "BRACE_W",
+    "LABEL_FONT_ZONE", "LABEL_FONT_VALUE", "LABEL_ZONE_SIZE", "LABEL_VALUE_SIZE",
+    "LABEL_LETTER_SPACING", "LABEL_BGR", "LABEL_ZONE_BGR", "LABEL_BACKING_BGR",
+    "LABEL_BACKING_ALPHA", "LABEL_BACKING_RADIUS", "LABEL_BAR_W", "LABEL_PAD",
+    "LABEL_TEXT_SHADOW_BGR", "MEAN_LINE_OUTLINE_W", "LABEL_OUTLINE_BGR",
     "LABEL_FONT_SCALE", "LABEL_FONT_THICK",
 ]

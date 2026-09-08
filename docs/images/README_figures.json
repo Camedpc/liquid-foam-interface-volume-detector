@@ -77,67 +77,69 @@
         1600,
         800
       ],
-      "bytes": 144477,
+      "bytes": 164335,
       "description": "V_lower(t), V_total(t), V_foam(t) of the green batch with the ±u_total bands of the uncertainty budget (calibration, pixel, curvature, method); u_total is about 3 mL, so the bands are barely wider than the lines at this scale.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": {
           "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
           "blur_sigma": 5.7,
           "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
           "channel": "gray"
         },
-        "batch": "frames 0..1120 step 1 (1 frame = 60 source frames)",
+        "batch": "frames 0..442 step 1 (1 frame = 60 source frames)",
         "summary": {
-          "n_rows": 1121,
-          "n_lower_found": 1121,
-          "n_upper_found": 1118,
+          "n_rows": 443,
+          "n_lower_found": 403,
+          "n_upper_found": 422,
           "V_lower_mL": {
-            "min": 0.978696881022245,
-            "max": 519.6613841043658,
-            "last": 227.90553930118443
+            "min": 83.27081326233436,
+            "max": 256.95737363056975,
+            "last": 256.2688340589735
           },
           "V_total_mL": {
-            "min": 84.73311227747422,
-            "max": 749.5237062623426,
-            "last": 359.11269886854546
+            "min": 82.48482478749416,
+            "max": 787.0108646309354,
+            "last": 176.84876035270418
           },
           "V_foam_mL": {
-            "min": 80.54862826521239,
-            "max": 746.5732518472994,
-            "last": 131.20715956736103
+            "min": 97.23877888999118,
+            "max": 659.7017585050288,
+            "last": 99.20411282820356
           },
           "u_method_lower_mL": {
-            "n": 955,
-            "mean": 0.9625668902976803,
-            "median": 0.9942433503524516,
-            "p95": 1.4720516113145763,
-            "max": 2.289664358130184
+            "n": 403,
+            "mean": 1.1323786544957182,
+            "median": 1.0367307479399896,
+            "p95": 1.7379245452668448,
+            "max": 2.0306397313340545
           },
           "u_method_upper_mL": {
-            "n": 738,
-            "mean": 1.8719069950938536,
-            "median": 1.6706317037020797,
-            "p95": 3.840130880302672,
-            "max": 4.009604695160718
+            "n": 310,
+            "mean": 2.6991445783713215,
+            "median": 3.0227762784797214,
+            "p95": 3.9296091620236475,
+            "max": 3.952873830857663
           }
         },
-        "geometry": "R = 3.20 cm, D = 35.1 cm, f = 1716 px, rho = 0.091, alpha = +0.00 deg [focal_free]",
+        "geometry": "R = 3.20 cm, D = 21.6 cm, f = 1139 px, rho = 0.148, alpha = +1.59 deg [mobius_tilt]",
         "budget_notes": {
           "calibration": "RMS residual of the 'pchip' model = 0.00 mL; scale resolution 10 mL / sqrt(12) = 2.89 mL; kept the larger.",
           "pixel": "1 px / sqrt(12) converted with the local slope |dV/dy|.",
-          "curvature": "geometric model [focal_free], band half-width r = 64 px, u = Delta / (2 sqrt(3)).",
-          "method": "median of the per-frame 'u_method_lower_mL' over 955 frames (mean 0.96, p95 1.47 mL)."
+          "curvature": "geometric model [mobius_tilt], band half-width r = 171 px, u = Delta / (2 sqrt(3)).",
+          "method": "median of the per-frame 'u_method_lower_mL' over 403 frames (mean 1.13, p95 1.74 mL)."
         }
       }
     },
@@ -165,14 +167,16 @@
         1600,
         908
       ],
-      "bytes": 556833,
+      "bytes": 522053,
       "description": "Calibration verification figure of the green run: annotated frame with the predicted graduation lines, crop band, V(y) of the three models and residuals.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
         "frame": 8,
-        "t_sec": 16.02,
+        "t_sec": -28.03,
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": null,
         "recommended_model": "pchip"
       }
@@ -180,35 +184,37 @@
     {
       "file": "calibration_clicks.png",
       "size_px": [
-        900,
-        1600
+        470,
+        1766
       ],
-      "bytes": 1139247,
+      "bytes": 815502,
       "description": "Calibration click window after the 4 ROI clicks (left / right edges, y_top, y_bottom) and the first 3 graduations; the cursor and the x8 loupe sit on the next graduation (400 mL).",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
         "frame": 8,
-        "t_sec": 16.02,
+        "t_sec": -28.03,
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": null,
         "placed": {
           "roi": [
             [
-              361,
-              960
+              73,
+              883
             ],
             [
-              675,
-              960
+              415,
+              883
             ],
             [
-              518,
-              5
+              244,
+              4
             ],
             [
-              518,
-              1869
+              244,
+              1534
             ]
           ],
           "graduations_ml": [
@@ -218,8 +224,8 @@
           ]
         },
         "cursor": [
-          527,
-          1163
+          238,
+          915
         ]
       }
     },
@@ -255,68 +261,195 @@
       }
     },
     {
+      "file": "detection_timeline.gif",
+      "size_px": [
+        306,
+        710
+      ],
+      "bytes": 1047184,
+      "description": "Animated timeline of the green-screen run: 15 frames from the pour to after the foam collapse, each the specimen panel (wash, flat lines, readouts) with a readout box giving t and the three volumes; 550 ms per frame, the last one held longer. Times count from the start of the pour.",
+      "source": {
+        "run": "green",
+        "video": "subsampled_step60.mp4",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
+        "params": {
+          "polarity": "lower_brighter",
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
+          "blur_sigma": 5.7,
+          "blur_h": 38,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
+          "channel": "gray"
+        },
+        "frames": [
+          {
+            "frame": 22,
+            "t_sec": 0.0,
+            "y_lower": null,
+            "y_upper": null
+          },
+          {
+            "frame": 30,
+            "t_sec": 16.02,
+            "y_lower": null,
+            "y_upper": 184.76470588235293
+          },
+          {
+            "frame": 39,
+            "t_sec": 34.03,
+            "y_lower": 1532.4272727272728,
+            "y_upper": 263.8636363636364
+          },
+          {
+            "frame": 50,
+            "t_sec": 56.06,
+            "y_lower": 1436.2716535433071,
+            "y_upper": 329.73949579831935
+          },
+          {
+            "frame": 60,
+            "t_sec": 76.08,
+            "y_lower": 1377.8416988416989,
+            "y_upper": 338.8550724637681
+          },
+          {
+            "frame": 80,
+            "t_sec": 116.12,
+            "y_lower": 1307.5057034220533,
+            "y_upper": 368.9166666666667
+          },
+          {
+            "frame": 108,
+            "t_sec": 172.17,
+            "y_lower": 1258.2359550561798,
+            "y_upper": 431.7299578059072
+          },
+          {
+            "frame": 150,
+            "t_sec": 256.26,
+            "y_lower": 1222.4067164179105,
+            "y_upper": 528.2046979865772
+          },
+          {
+            "frame": 200,
+            "t_sec": 356.36,
+            "y_lower": 1204.5056603773585,
+            "y_upper": 620.218253968254
+          },
+          {
+            "frame": 250,
+            "t_sec": 456.46,
+            "y_lower": 1197.814393939394,
+            "y_upper": 663.8666666666667
+          },
+          {
+            "frame": 300,
+            "t_sec": 556.56,
+            "y_lower": 1194.1646586345382,
+            "y_upper": 698.9277108433735
+          },
+          {
+            "frame": 350,
+            "t_sec": 656.66,
+            "y_lower": 1191.9756097560976,
+            "y_upper": 743.8704453441295
+          },
+          {
+            "frame": 380,
+            "t_sec": 716.72,
+            "y_lower": 1190.3265306122448,
+            "y_upper": 806.3394495412844
+          },
+          {
+            "frame": 400,
+            "t_sec": 756.76,
+            "y_lower": 1189.896694214876,
+            "y_upper": 964.7037037037037
+          },
+          {
+            "frame": 440,
+            "t_sec": 836.84,
+            "y_lower": 1191.049107142857,
+            "y_upper": 994.7127659574468
+          }
+        ],
+        "frame_ms": 550
+      }
+    },
+    {
       "file": "frame_step_illustration.png",
       "size_px": [
         1500,
         630
       ],
-      "bytes": 55517,
+      "bytes": 53215,
       "description": "V_lower(t) of the green-screen batch at frame_step 1 (line) and 10 (circles): the sub-sampled curve sits on the full one.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": {
           "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
           "blur_sigma": 5.7,
           "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
           "channel": "gray"
         },
-        "batch": "frames 0..1120 step 1 and step 10, time_scale 60"
+        "batch": "frames 0..442 step 1 and step 10, time_scale 60"
       }
     },
     {
       "file": "hero.png",
       "size_px": [
-        1581,
+        1483,
         904
       ],
-      "bytes": 1045656,
-      "description": "Raw frame -> detected, on the green-screen run (left pair) and the black-background run (right pair): thick red / teal mean lines at the liquid/foam and foam/air interfaces, peach wash on the foam band, blue wash on the liquid, volumes next to the zones.",
+      "bytes": 1003513,
+      "description": "Raw frame -> detected, on the green-screen run (left pair) and the black-background run (right pair): flat red / teal mean lines at the liquid/foam and foam/air interfaces, peach wash on the foam band, blue wash on the liquid, readout boxes with the volumes.",
       "source": {
         "runs": {
           "green": {
             "run": "green",
             "video": "subsampled_step60.mp4",
-            "run_dir": "10 1000mL final results pour beer",
+            "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
             "frame": 108,
-            "t_sec": 216.22,
+            "t_sec": 172.17,
+            "t0_frame": 22,
+            "time_origin": "t = 0 at frame 22 (start of the pour)",
             "params": {
               "polarity": "lower_brighter",
-              "T_lower": 16.0,
-              "T_upper": 16.0,
-              "r_lower": 64,
-              "r_upper": 64,
+              "T_lower": 40.0,
+              "T_upper": 8.0,
+              "r_lower": 171,
+              "r_upper": 171,
               "blur_sigma": 5.7,
               "blur_h": 38,
-              "min_h_upper": 3,
-              "y_top": 5,
-              "y_bottom": 1869,
-              "cx": 157,
+              "min_h_upper": 15,
+              "y_top": 4,
+              "y_bottom": 1534,
+              "cx": 171,
               "channel": "gray"
             },
-            "y_lower": 1487.7674418604652,
-            "y_upper": 722.4444444444445,
-            "n_lower": 129,
-            "n_upper": 18
+            "y_lower": 1258.2359550561798,
+            "y_upper": 431.7299578059072,
+            "n_lower": 267,
+            "n_upper": 237
           },
           "black": {
             "run": "black",
@@ -350,50 +483,52 @@
     {
       "file": "param_T_lower.png",
       "size_px": [
-        1184,
-        868
+        1292,
+        906
       ],
-      "bytes": 345516,
+      "bytes": 399449,
       "description": "Threshold of the lower (liquid/foam) interface: too low validates weak gradients in every column (false positives in the mask), the tuned value keeps only the true interface.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
         "frame": 108,
-        "t_sec": 216.22,
+        "t_sec": 172.17,
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": {
           "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
           "blur_sigma": 5.7,
           "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
           "channel": "gray"
         },
         "variants": [
           {
             "T_lower": 4,
-            "y_lower": 1487.7674418604652,
-            "y_upper": 722.4444444444445,
-            "n_lower": 129,
-            "n_upper": 18
+            "y_lower": 1257.3032069970845,
+            "y_upper": 431.7299578059072,
+            "n_lower": 343,
+            "n_upper": 237
           },
           {
-            "T_lower": 16,
-            "y_lower": 1487.7674418604652,
-            "y_upper": 722.4444444444445,
-            "n_lower": 129,
-            "n_upper": 18
+            "T_lower": 40,
+            "y_lower": 1258.2359550561798,
+            "y_upper": 431.7299578059072,
+            "n_lower": 267,
+            "n_upper": 237
           }
         ],
         "rows_window": [
-          492,
-          1717
+          201,
+          1488
         ]
       }
     },
@@ -403,7 +538,7 @@
         1106,
         833
       ],
-      "bytes": 346830,
+      "bytes": 348530,
       "description": "Threshold of the upper (foam/air) interface: the bottom-up search from the lower interface stops on the first row above threshold, so a low value catches bubble edges right above the beer.",
       "source": {
         "run": "black",
@@ -453,7 +588,7 @@
         1106,
         833
       ],
-      "bytes": 390151,
+      "bytes": 391182,
       "description": "Horizontal box filter: it averages every row along x, keeping the horizontal interfaces and washing out the vertical bubble texture of the foam.",
       "source": {
         "run": "black",
@@ -500,95 +635,99 @@
     {
       "file": "param_blur_sigma.png",
       "size_px": [
-        1184,
-        868
+        1292,
+        906
       ],
-      "bytes": 564641,
+      "bytes": 591179,
       "description": "Gaussian smoothing: with a small sigma every bubble edge competes with the interface and the per-column detections scatter; the tuned value spreads the interface over a few rows.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
         "frame": 108,
-        "t_sec": 216.22,
+        "t_sec": 172.17,
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": {
           "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
           "blur_sigma": 5.7,
           "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
           "channel": "gray"
         },
         "variants": [
           {
             "blur_sigma": 0.5,
-            "y_lower": 1289.062015503876,
-            "y_upper": 988.9147286821706,
-            "n_lower": 129,
-            "n_upper": 129
+            "y_lower": 1258.4149253731343,
+            "y_upper": 523.5847953216374,
+            "n_lower": 335,
+            "n_upper": 342
           },
           {
             "blur_sigma": 5.7,
-            "y_lower": 1487.7674418604652,
-            "y_upper": 722.4444444444445,
-            "n_lower": 129,
-            "n_upper": 18
+            "y_lower": 1258.2359550561798,
+            "y_upper": 431.7299578059072,
+            "n_lower": 267,
+            "n_upper": 237
           }
         ],
         "rows_window": [
-          492,
-          1717
+          201,
+          1488
         ]
       }
     },
     {
       "file": "param_channel.png",
       "size_px": [
-        1446,
-        720
+        1572,
+        752
       ],
-      "bytes": 495484,
-      "description": "Grey level used by the detector: the green channel carries the contrast of a green screen, the red channel almost nothing.",
+      "bytes": 574093,
+      "description": "Grey level used by the detector: gray (tuned) and the green channel agree on the lower interface; G validates more upper columns but stops on bubble edges below the foam top; the red channel carries almost no signal on a green screen.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
         "frame": 108,
-        "t_sec": 216.22,
+        "t_sec": 172.17,
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": {
           "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
           "blur_sigma": 5.7,
           "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
           "channel": "gray"
         },
         "variants": [
           {
             "channel": "gray",
-            "y_lower": 1487.7674418604652,
-            "y_upper": 722.4444444444445,
-            "n_lower": 129,
-            "n_upper": 18
+            "y_lower": 1258.2359550561798,
+            "y_upper": 431.7299578059072,
+            "n_lower": 267,
+            "n_upper": 237
           },
           {
             "channel": "G",
-            "y_lower": 1488.0077519379845,
-            "y_upper": 734.344537815126,
-            "n_lower": 129,
-            "n_upper": 119
+            "y_lower": 1258.0294117647059,
+            "y_upper": 463.55029585798815,
+            "n_lower": 306,
+            "n_upper": 338
           },
           {
             "channel": "R",
@@ -599,165 +738,171 @@
           }
         ],
         "rows_window": [
-          492,
-          1717
+          201,
+          1488
         ]
       }
     },
     {
       "file": "param_cx.png",
       "size_px": [
-        1184,
-        868
+        1292,
+        906
       ],
-      "bytes": 449551,
+      "bytes": 405419,
       "description": "Axis column inside the crop: the band is centred on cx, so a wrong cx samples the interface near a wall (meniscus, refraction) instead of the centre.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
         "frame": 108,
-        "t_sec": 216.22,
+        "t_sec": 172.17,
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": {
           "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
           "blur_sigma": 5.7,
           "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
           "channel": "gray"
         },
         "variants": [
           {
             "cx": 40,
-            "y_lower": 1479.5432098765432,
-            "y_upper": null,
-            "n_lower": 81,
-            "n_upper": 0
+            "y_lower": 1259.0529411764705,
+            "y_upper": 434.30645161290323,
+            "n_lower": 170,
+            "n_upper": 124
           },
           {
-            "cx": 157,
-            "y_lower": 1487.7674418604652,
-            "y_upper": 722.4444444444445,
-            "n_lower": 129,
-            "n_upper": 18
+            "cx": 171,
+            "y_lower": 1258.2359550561798,
+            "y_upper": 431.7299578059072,
+            "n_lower": 267,
+            "n_upper": 237
           }
         ],
         "rows_window": [
-          492,
-          1717
+          201,
+          1488
         ]
       }
     },
     {
       "file": "param_min_h_upper.png",
       "size_px": [
-        1184,
-        905
+        1292,
+        356
       ],
-      "bytes": 333548,
-      "description": "Connected-component height filter of the upper interface, during the pour (foam full of large bubbles): without it the bottom-up search stops on thin bubble edges inside the foam and the upper interface drops by more than 100 px; requiring blobs at least 3 rows tall keeps the foam top.",
+      "bytes": 189519,
+      "description": "Connected-component height filter of the upper interface: without it the bottom-up search stops on thin bubble edges inside the foam, below the true foam top; requiring blobs at least 15 rows tall keeps the foam top (the reference frame, foam full of large bubbles under a bubbly top).",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
-        "frame": 30,
-        "t_sec": 60.06,
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
+        "frame": 108,
+        "t_sec": 172.17,
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": {
           "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
           "blur_sigma": 5.7,
           "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
           "channel": "gray"
         },
         "variants": [
           {
             "min_h_upper": 0,
-            "y_lower": 1817.1162790697674,
-            "y_upper": 931.4496124031008,
-            "n_lower": 129,
-            "n_upper": 129
+            "y_lower": 1258.2359550561798,
+            "y_upper": 460.9573770491803,
+            "n_lower": 267,
+            "n_upper": 305
           },
           {
-            "min_h_upper": 3,
-            "y_lower": 1817.1162790697674,
-            "y_upper": 812.7054263565891,
-            "n_lower": 129,
-            "n_upper": 129
+            "min_h_upper": 15,
+            "y_lower": 1258.2359550561798,
+            "y_upper": 431.7299578059072,
+            "n_lower": 267,
+            "n_upper": 237
           }
         ],
         "rows_window": [
-          592,
-          1877
+          281,
+          681
         ]
       }
     },
     {
       "file": "param_r_lower.png",
       "size_px": [
-        1446,
-        720
+        1572,
+        752
       ],
-      "bytes": 274200,
-      "description": "Half-width of the averaging band of the lower interface: a narrow band uses few columns, the whole width includes the walls where refraction and the meniscus bend the interface.",
+      "bytes": 316803,
+      "description": "Half-width of the averaging band of the lower interface: a narrow band uses few columns and follows the local bend of the interface; the whole width (tuned here) averages every column that passes the threshold, the walls being excluded by the threshold itself.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
         "frame": 108,
-        "t_sec": 216.22,
+        "t_sec": 172.17,
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": {
           "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
           "blur_sigma": 5.7,
           "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
           "channel": "gray"
         },
         "variants": [
           {
             "r_lower": 10,
-            "y_lower": 1488.3333333333333,
-            "y_upper": 722.4444444444445,
+            "y_lower": 1259.952380952381,
+            "y_upper": 431.7299578059072,
             "n_lower": 21,
-            "n_upper": 18
+            "n_upper": 237
           },
           {
             "r_lower": 64,
-            "y_lower": 1487.7674418604652,
-            "y_upper": 722.4444444444445,
+            "y_lower": 1259.4108527131782,
+            "y_upper": 431.7299578059072,
             "n_lower": 129,
-            "n_upper": 18
+            "n_upper": 237
           },
           {
-            "r_lower": 157,
-            "y_lower": 1505.0549828178694,
-            "y_upper": 722.4444444444445,
-            "n_lower": 291,
-            "n_upper": 18
+            "r_lower": 171,
+            "y_lower": 1258.2359550561798,
+            "y_upper": 431.7299578059072,
+            "n_lower": 267,
+            "n_upper": 237
           }
         ],
         "rows_window": [
-          492,
-          1717
+          201,
+          1488
         ]
       }
     },
@@ -767,7 +912,7 @@
         1455,
         830
       ],
-      "bytes": 466012,
+      "bytes": 464871,
       "description": "Bottom gradient mask: rows below y_bottom are zeroed (magenta line). Without it the bright edge of the base shows up as a teal blob in the threshold mask (an upper-interface candidate, harmless here but picked whenever the lower interface is lost); a y_bottom above the beer/foam interface masks the true lower interface.",
       "source": {
         "run": "black",
@@ -824,7 +969,7 @@
         1106,
         872
       ],
-      "bytes": 405848,
+      "bytes": 404626,
       "description": "Top gradient mask: rows above y_top are zeroed (magenta line). The glass rim of both runs lies outside the frame, so the mask is shown the other way round: a y_top below the foam top masks the true upper interface and the detector reports nothing above threshold.",
       "source": {
         "run": "black",
@@ -871,29 +1016,31 @@
     {
       "file": "polarity_lower_brighter.png",
       "size_px": [
-        619,
-        1399
+        673,
+        1182
       ],
-      "bytes": 555982,
+      "bytes": 497046,
       "description": "Analysis panels + info strip on the green-screen run with polarity lower_brighter: the beer transmits the back light, the foam scatters it, the signs are flipped.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
         "frame": 108,
-        "t_sec": 216.22,
+        "t_sec": 172.17,
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": {
           "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
           "blur_sigma": 5.7,
           "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
           "channel": "gray"
         }
       }
@@ -904,7 +1051,7 @@
         685,
         1195
       ],
-      "bytes": 376653,
+      "bytes": 376053,
       "description": "Analysis panels + info strip on the black-background run with polarity lower_darker: the lower (beer/foam) interface is a negative Gy peak, the upper (foam/air) a positive one.",
       "source": {
         "run": "black",
@@ -931,29 +1078,31 @@
     {
       "file": "polarity_wrong.png",
       "size_px": [
-        1184,
-        930
+        1292,
+        968
       ],
-      "bytes": 626805,
+      "bytes": 692556,
       "description": "Same green-screen frame processed with the wrong polarity (left) and the right one (right): with lower_darker the detector locks on the wrong sign of the gradient.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
         "frame": 108,
-        "t_sec": 216.22,
+        "t_sec": 172.17,
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": {
           "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
           "blur_sigma": 5.7,
           "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
           "channel": "gray"
         },
         "variants": [
@@ -982,17 +1131,19 @@
     {
       "file": "setup_green_screen.png",
       "size_px": [
-        394,
+        186,
         700
       ],
-      "bytes": 254966,
+      "bytes": 173274,
       "description": "Raw frame of the back-lit green-screen setup (dark foam, translucent beer).",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
         "frame": 108,
-        "t_sec": 216.22,
+        "t_sec": 172.17,
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": null
       }
     },
@@ -1000,76 +1151,86 @@
       "file": "timeline_green.png",
       "size_px": [
         1600,
-        598
+        485
       ],
-      "bytes": 723523,
-      "description": "Six frames of the green-screen run, each with the detected interfaces, the foam wash and the volumes: the pour, then the foam band shrinking while the liquid level rises.",
+      "bytes": 494764,
+      "description": "7 frames of the green-screen run, each with the detected interfaces, the foam wash and the readouts: the pour, the foam peak, the band shrinking while the liquid drains out of it, and the collapse between frames 380 and 400. Times count from the start of the pour.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": {
           "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
           "blur_sigma": 5.7,
           "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
           "channel": "gray"
         },
         "frames": [
           {
             "frame": 30,
-            "t_sec": 60.06,
-            "y_lower": 1817.1162790697674,
-            "y_upper": 812.7054263565891,
-            "n_lower": 129,
-            "n_upper": 129
+            "t_sec": 16.02,
+            "y_lower": null,
+            "y_upper": 184.76470588235293,
+            "n_lower": 0,
+            "n_upper": 255
           },
           {
-            "frame": 60,
-            "t_sec": 120.12,
-            "y_lower": 1563.8837209302326,
-            "y_upper": 651.1525423728814,
-            "n_lower": 129,
-            "n_upper": 59
+            "frame": 39,
+            "t_sec": 34.03,
+            "y_lower": 1532.4272727272728,
+            "y_upper": 263.8636363636364,
+            "n_lower": 220,
+            "n_upper": 176
           },
           {
             "frame": 108,
-            "t_sec": 216.22,
-            "y_lower": 1487.7674418604652,
-            "y_upper": 722.4444444444445,
-            "n_lower": 129,
-            "n_upper": 18
+            "t_sec": 172.17,
+            "y_lower": 1258.2359550561798,
+            "y_upper": 431.7299578059072,
+            "n_lower": 267,
+            "n_upper": 237
+          },
+          {
+            "frame": 200,
+            "t_sec": 356.36,
+            "y_lower": 1204.5056603773585,
+            "y_upper": 620.218253968254,
+            "n_lower": 265,
+            "n_upper": 252
           },
           {
             "frame": 300,
-            "t_sec": 600.6,
-            "y_lower": 1432.7829457364342,
-            "y_upper": 1079.6266666666668,
-            "n_lower": 129,
-            "n_upper": 75
+            "t_sec": 556.56,
+            "y_lower": 1194.1646586345382,
+            "y_upper": 698.9277108433735,
+            "n_lower": 249,
+            "n_upper": 249
           },
           {
-            "frame": 600,
-            "t_sec": 1201.2,
-            "y_lower": 1425.3178294573643,
-            "y_upper": 1166.9922480620155,
-            "n_lower": 129,
-            "n_upper": 129
+            "frame": 380,
+            "t_sec": 716.72,
+            "y_lower": 1190.3265306122448,
+            "y_upper": 806.3394495412844,
+            "n_lower": 245,
+            "n_upper": 327
           },
           {
-            "frame": 1000,
-            "t_sec": 2002.0,
-            "y_lower": 1431.7906976744187,
-            "y_upper": 1212.6632653061224,
-            "n_lower": 129,
-            "n_upper": 98
+            "frame": 400,
+            "t_sec": 756.76,
+            "y_lower": 1189.896694214876,
+            "y_upper": 964.7037037037037,
+            "n_lower": 242,
+            "n_upper": 324
           }
         ]
       }
@@ -1080,26 +1241,28 @@
         1600,
         900
       ],
-      "bytes": 595640,
+      "bytes": 514927,
       "description": "Tuner canvas (specimen + highlight + signed gradient + threshold mask + info strip) on the green-screen run, inline layout, 1920x1080 screen.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
         "frame": 108,
-        "t_sec": 216.22,
+        "t_sec": 172.17,
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": {
           "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
           "blur_sigma": 5.7,
           "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
           "channel": "gray"
         },
         "layout": "inline, specimen on"
@@ -1111,7 +1274,7 @@
         1600,
         900
       ],
-      "bytes": 372655,
+      "bytes": 368698,
       "description": "Tuner canvas in the stacked layout (specimen + highlight on the first row, signed gradient + threshold mask on the second) on the black-background run.",
       "source": {
         "run": "black",
@@ -1257,41 +1420,43 @@
     {
       "file": "uncertainty_method.png",
       "size_px": [
-        1591,
-        416
+        1600,
+        401
       ],
-      "bytes": 214782,
+      "bytes": 280611,
       "description": "Zoom on the lower interface of the green-screen frame with the per-column detections, the mean line and the dashed empirical bounds, next to the numbers of the method uncertainty.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
-        "run_dir": "10 1000mL final results pour beer",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
         "frame": 108,
-        "t_sec": 216.22,
+        "t_sec": 172.17,
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
         "params": {
           "polarity": "lower_brighter",
-          "T_lower": 16.0,
-          "T_upper": 16.0,
-          "r_lower": 64,
-          "r_upper": 64,
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
           "blur_sigma": 5.7,
           "blur_h": 38,
-          "min_h_upper": 3,
-          "y_top": 5,
-          "y_bottom": 1869,
-          "cx": 157,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
           "channel": "gray"
         },
         "method": {
-          "y_mean": 1487.7674418604652,
-          "V_mean": 213.32334865533093,
-          "y_up": 1485.0,
-          "y_lo": 1490.0,
-          "V_up": 214.91158235960296,
-          "V_lo": 212.0422529778284,
-          "range_ml": 2.8693293817745484,
-          "u_ml": 0.8283040454806191,
-          "n_kept": 129
+          "y_mean": 1258.2359550561798,
+          "V_mean": 221.78946048120983,
+          "y_up": 1253.0,
+          "y_lo": 1261.0,
+          "V_up": 224.4613728819744,
+          "V_lo": 220.3793553993394,
+          "range_ml": 4.0820174826349955,
+          "u_ml": 1.1783769462180367,
+          "n_kept": 267
         }
       }
     },

@@ -4,20 +4,24 @@
 
 <p align="center"><img src="docs/images/hero.png" width="100%"></p>
 
-*Raw frame → detected, on the two lighting setups. The tool finds the **liquid/foam interface** (red line) and the **foam/air interface** (teal line), shades the foam band between them (peach) and the liquid below (blue), and converts both rows to volumes through the printed scale. Left pair: back-lit green screen, frame 108 (t = 216 s) — foam 440 mL, liquid 213 mL, total 654 mL. Right pair: front-lit black background, frame 2472 (t = 124 s) — foam 581 mL, liquid 149 mL, total 730 mL.*
+*Raw frame → detected, on the two lighting setups. The tool finds the **liquid/foam interface** (red line) and the **foam/air interface** (teal line), shades the foam band between them (peach) and the liquid below (blue), and converts both rows to volumes through the printed scale — the readouts next to the braces. Left pair: back-lit green screen, frame 108 (t = 172 s after the start of the pour) — foam 431 mL, liquid 222 mL, total 653 mL. Right pair: front-lit black background, frame 2472 (t = 124 s) — foam 581 mL, liquid 149 mL, total 730 mL.*
+
+<p align="center"><img src="docs/images/detection_timeline.gif" width="34%"></p>
+
+*The green-screen run through the detector, from the pour to after the foam collapse (15 frames, 1 frame = 60 source frames, times from the start of the pour): the readout in the header gives t and the three volumes of every frame; the static strip below shows the same frames for viewers whose browser does not play GIFs.*
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests: pytest](https://img.shields.io/badge/tests-pytest%20%C2%B7%2072%20passed-brightgreen.svg)](#tests)
-[![OpenCV](https://img.shields.io/badge/built%20with-OpenCV%20%C2%B7%20NumPy%20%C2%B7%20SciPy%20%C2%B7%20Matplotlib-lightgrey.svg)](requirements.txt)
+[![Tests: pytest](https://img.shields.io/badge/tests-pytest%20%C2%B7%2078%20passed-brightgreen.svg)](#tests)
+[![OpenCV](https://img.shields.io/badge/built%20with-OpenCV%20%C2%B7%20NumPy%20%C2%B7%20SciPy%20%C2%B7%20Matplotlib%20%C2%B7%20Pillow-lightgrey.svg)](requirements.txt)
 
 ## The foam, over time
 
 <p align="center"><img src="docs/images/timeline_green.png" width="100%"></p>
 
-*Six frames of the green-screen run through the detector (1 frame = 60 source frames). During the pour (frame 30, t = 60 s) the foam band is 576 mL over 25 mL of liquid; it shrinks to 525 mL (t = 2 min), 440 mL (3.6 min), 203 mL (10 min), 148 mL (20 min) and 126 mL (33 min) while the liquid drains out of it and settles around 245 mL. Every panel is the specimen view of the tuner: the two thick mean lines with their inward arrows at the cylinder walls, the shaded foam and liquid zones, and the volumes next to the braces.*
+*Seven frames of the green-screen run (1 frame = 60 source frames; t = 0 at the start of the pour, sub frame 22). While the beer is still being poured (frame 30, t = 16 s) only the foam top is visible; at the foam peak (frame 39, t = 34 s) the band is 658 mL over 83 mL of liquid. It then shrinks to 431 mL (t = 172 s), 305 mL (356 s), 259 mL (557 s) and 200 mL (11.9 min) while the liquid drains out of it and settles at 257 mL; between frames 380 and 400 (12.6 min) an 83 mL slab of foam collapses and the band drops to 117 mL. Every panel is the specimen view of the tuner: the two flat mean lines with their triangles at the cylinder walls, the shaded foam and liquid zones, the braces and the readouts.*
 
-Every overlay in this README uses the same code: **red** = lower interface (liquid/foam), **teal** = upper interface (foam/air), **peach wash** = foam, **blue wash** = liquid. The lines are drawn at the output resolution (6 px, dark outline) so they stay visible whatever the size of the figure; small dots along each line are the per-column detections that the mean line averages.
+Every overlay in this README uses the same code: **red** = lower interface (liquid/foam), **teal** = upper interface (foam/air), **peach wash** = foam, **blue wash** = liquid. The lines are drawn at the output resolution (3 px flat, a 1 px shadow underneath) so they stay crisp whatever the size of the figure; small dots along each line are the per-column detections that the mean line averages. The readouts use the TrueType fonts shipped with matplotlib (DejaVu Sans for the zone words, DejaVu Sans Mono for the numbers).
 
 ## Background
 
@@ -44,7 +48,7 @@ flowchart LR
 ```bash
 git clone https://github.com/Camedpc/liquid-foam-interface-volume-detector.git
 cd liquid-foam-interface-volume-detector
-pip install -r requirements.txt      # opencv-python, numpy, scipy, matplotlib
+pip install -r requirements.txt      # opencv-python, numpy, scipy, matplotlib, pillow
 pip install -e .                     # optional: import cylvision from anywhere
 ```
 
@@ -74,8 +78,8 @@ The detector only looks at the **sign of $G_y$** along the cylinder axis. Image 
 
 <table>
 <tr>
-<td align="center" width="62%"><img src="docs/images/setup_black_background.png" width="100%"><br><em>Front-lit, black background (frame 2472, t = 124.2 s): bright white foam over dark beer, dark air above.</em></td>
-<td align="center" width="38%"><img src="docs/images/setup_green_screen.png" width="100%"><br><em>Back-lit green screen (frame 108, t = 216.2 s): the beer transmits the light, the foam scatters it and looks dark.</em></td>
+<td align="center" width="70%"><img src="docs/images/setup_black_background.png" width="100%"><br><em>Front-lit, black background (frame 2472, t = 124.2 s): bright white foam over dark beer, dark air above.</em></td>
+<td align="center" width="30%"><img src="docs/images/setup_green_screen.png" width="60%"><br><em>Back-lit green screen (frame 108, t = 172 s after the pour): the beer transmits the light, the foam scatters it and looks dark. The recording is a 470 × 1766 crop around the cylinder.</em></td>
 </tr>
 </table>
 
@@ -91,7 +95,7 @@ The two interfaces always have opposite signs, so the code works on $S = \pm G_y
 <table>
 <tr>
 <td align="center" width="50%"><img src="docs/images/polarity_lower_darker.png" width="88%"><br><em><code>lower_darker</code> on the black run: red blob at the beer/foam interface (y = 845.7 px, 161/161 columns, 148.6 mL), teal blobs at the foam top (y = 159.8 px, 203/227 columns, 729.9 mL); the foam band (581 mL) is shaded between them.</em></td>
-<td align="center" width="50%"><img src="docs/images/polarity_lower_brighter.png" width="80%"><br><em><code>lower_brighter</code> on the green run: same colours, flipped physics. Lower y = 1487.8 px (213.3 mL), upper y = 722.4 px (653.6 mL, 18/129 columns), foam 440 mL. The base of the cylinder shows up as a second red/teal pair at the very bottom, inside the y_bottom mask.</em></td>
+<td align="center" width="50%"><img src="docs/images/polarity_lower_brighter.png" width="80%"><br><em><code>lower_brighter</code> on the green run: same colours, flipped physics. Lower y = 1258.2 px ± 1.7 px (221.8 mL, 267/343 columns), upper y = 431.7 px (653.0 mL, 237/343 columns), foam 431 mL. The teal blobs above the foam top are the bubbly upper layer of the foam; the bottom-up scan stops on the lowest one.</em></td>
 </tr>
 </table>
 
@@ -105,7 +109,7 @@ The three analysis panels shown above and in the tuner:
 
 <p align="center"><img src="docs/images/polarity_wrong.png" width="90%"></p>
 
-*The same green-screen frame with the wrong polarity (left) and the right one (right). With `lower_darker` the detector locks on the wrong sign: it reports the base edge as the "lower" interface (y = 1746.4 px, 66 mL) and the real beer/foam interface as the "upper" one (y = 1495.9 px, 209 mL), so the shaded "foam" is the liquid (143 mL). With `lower_brighter`: liquid 213 mL, total 654 mL, foam 440 mL.*
+*The same green-screen frame with the wrong polarity (left) and the right one (right). With `lower_darker` the detector locks on the wrong sign: nothing passes the "lower" threshold (0 columns) and the real beer/foam interface is reported as the "upper" one (y = 1267.1 px, 217 mL, 341 columns) — no foam band, no readout. With `lower_brighter`: liquid 222 mL, total 653 mL, foam 431 mL.*
 
 ## Tool 1 — Scale calibration (`scripts/calibrate.py`)
 
@@ -113,7 +117,7 @@ One still frame, a handful of clicks. The script asks, in order, for the **left*
 
 <p align="center"><img src="docs/images/calibration_clicks.png" width="45%"></p>
 
-*Prompt 8 of 14 on the green run: the four ROI clicks are placed (left 361, right 675, y_top 5, y_bottom 1869) and the 100, 200 and 300 mL graduations are marked in orange; the cursor sits at (527, 1163) on the 400 mL ring, magnified ×8 in the top-left loupe.*
+*Prompt 8 of 14 on the green run: the four ROI clicks are placed (left 73, right 415, y_top 4, y_bottom 1534) and the 100, 200 and 300 mL graduations are marked in orange; the cursor sits at (238, 915) on the 400 mL ring, magnified ×8 in the top-left loupe. The 700–1000 mL rings lie above the frame and are skipped with `s`.*
 
 Three models are fitted on the clicks $(y_i, V_i)$:
 
@@ -123,11 +127,11 @@ Three models are fitted on the clicks $(y_i, V_i)$:
 | poly2 | $V = a y^2 + b y + c$ | smooth, absorbs one noisy click |
 | Möbius | $V = \dfrac{a y + b}{c y + 1}$ | the exact pinhole + tilt law; $c = 0$ means no camera pitch |
 
-`best_model` keeps **poly2 when its RMS residual is ≤ 0.3 mL**, otherwise **PCHIP**. On both runs below poly2 lands at 0.56–0.58 mL, so the calibration honours the actual rings with PCHIP.
+`best_model` keeps **poly2 when its RMS residual is ≤ 0.3 mL**, otherwise **PCHIP**. On both runs below poly2 lands at 0.43–0.56 mL, so the calibration honours the actual rings with PCHIP.
 
 <table>
 <tr>
-<td align="center" width="50%"><img src="docs/images/calibration_check_green.png" width="100%"><br><em>Green run (1080 × 1920 frame, crop 325 × 1920): 10 clicks from 100 to 1000 mL. RMS: PCHIP 0.00, poly2 0.58, Möbius 0.58 mL.</em></td>
+<td align="center" width="50%"><img src="docs/images/calibration_check_green.png" width="100%"><br><em>Green run (470 × 1766 frame, crop 343 × 1766): 6 clicks from 100 to 600 mL (the rings above are out of frame). RMS: PCHIP 0.00, poly2 0.43, Möbius 0.44 mL.</em></td>
 <td align="center" width="50%"><img src="docs/images/calibration_check_black.png" width="100%"><br><em>Black run (1920 × 1080 frame, crop 237 × 1080): 8 clicks from 100 to 800 mL. RMS: PCHIP 0.00, poly2 0.56, Möbius 0.60 mL.</em></td>
 </tr>
 </table>
@@ -168,7 +172,7 @@ The tuner shows one frame through the detector and lets you move every parameter
 
 <p align="center"><img src="docs/images/tuner_canvas_inline.png" width="100%"></p>
 
-*Inline layout on the green run (frame 108, t = 216.2 s): specimen, highlight, signed gradient, threshold mask and the info strip. Liquid 213.3 mL, liquid + foam 653.6 mL, foam 440.3 mL.*
+*Inline layout on the green run (frame 108, t = 172.2 s): specimen, highlight, signed gradient, threshold mask and the info strip. Liquid 221.8 mL, liquid + foam 653.0 mL, foam 431.2 mL. The recording has no margin right of the cylinder, so the specimen panel drops its braces and readouts here; the highlight panel carries them inside the zones.*
 
 <p align="center"><img src="docs/images/tuner_canvas_stacked.png" width="100%"></p>
 
@@ -180,7 +184,7 @@ The **info strip** repeats the parameters and prints, for each interface, the me
 
 <p align="center"><img src="docs/images/control_panel.png" width="90%"></p>
 
-*The Tk panel in two-column layout, loaded with the green-run parameters (`lower brighter`, T 16/16, r 64/64, σ 5.7, blur_h 38, min_h 3, y 5..1869, cx 157, gray, every frame).*
+*The Tk panel in two-column layout, loaded with the parameters of an earlier green-screen recording (`lower brighter`, T 16/16, r 64/64, σ 5.7, blur_h 38, min_h 3, y 5..1869, cx 157, gray, every frame). The run used in the figures below is tuned to T 40/8, r 171/171, min_h 15, y 4..1534, cx 171.*
 
 **▶ Run batch** saves `params.json` (parameters + `frame_step`) and prints the batch command; **✖ Abort** leaves the run directory untouched; **⇄ 1/2 columns** rebuilds the panel in one or two columns. The footer shows the hotkeys of the OpenCV window and a one-line summary of the current values.
 
@@ -245,7 +249,7 @@ Each figure shows the same frame with one parameter changed; the highlight panel
 
 <p align="center"><img src="docs/images/param_T_lower.png" width="80%"></p>
 
-*`T_lower` 4 vs 16 (green run). Both values give the same interfaces (1487.8 / 722.4 px, 129 columns) because the argmax already lands on the true interface, but at 4 the red mask is littered with weak gradients in the foam and below the beer — every one of them a candidate the moment the interface weakens. 16 keeps only the interface.*
+*`T_lower` 4 vs 40 (green run). Both values give almost the same lower interface (1257.3 vs 1258.2 px) because the argmax already lands on the true interface, but at 4 every one of the 343 columns is validated and the red mask is littered with weak gradients in the foam and below the beer — every one of them a candidate the moment the interface weakens. 40 keeps only the interface (267 columns, the walls excluded).*
 
 <p align="center"><img src="docs/images/param_T_upper.png" width="80%"></p>
 
@@ -253,11 +257,11 @@ Each figure shows the same frame with one parameter changed; the highlight panel
 
 <p align="center"><img src="docs/images/param_r_lower.png" width="100%"></p>
 
-*`r_lower` 10, 64 and 157 (green run). A narrow band uses 21 columns (1488.3 px); the tuned band 129 columns (1487.8 px); the whole width 291 columns and the mean drops to 1505.1 px (203 mL instead of 213 mL) because the columns near the walls follow the meniscus — visible as the red dots curving away from the mean line.*
+*`r_lower` 10, 64 and 171 (green run). A narrow band uses 21 columns (1260.0 px, 220.9 mL); a medium one 129 columns (1259.4 px, 221.2 mL); the tuned band spans the whole crop (171 = half the crop width), 267 columns, 1258.2 px (221.8 mL). On this recording the interface is flat across the cylinder and the threshold already drops the wall columns, so the three agree within 1 mL; the narrow band is nevertheless the one to use when the meniscus bends the interface near the glass.*
 
 <p align="center"><img src="docs/images/param_blur_sigma.png" width="80%"></p>
 
-*`blur_sigma` 0.5 vs 5.7 (green run). With almost no smoothing every bubble edge beats the interface: the mask is a cloud of strokes, the lower interface is reported at 1289.1 px (328 mL) inside the foam and the upper one at 988.9 px (501 mL). At 5.7 the interface is spread over a few rows and wins everywhere: 1487.8 px (213 mL) and 722.4 px (654 mL).*
+*`blur_sigma` 0.5 vs 5.7 (green run). With almost no smoothing every bubble edge passes the upper threshold: the teal mask is a cloud of strokes and the bottom-up scan stops on the first of them, 523.6 px (605 mL) instead of the foam top at 431.7 px (653 mL) — the shaded foam band loses 48 mL. The lower interface, a strong edge, survives either way (1258.4 vs 1258.2 px).*
 
 <p align="center"><img src="docs/images/param_blur_h.png" width="80%"></p>
 
@@ -265,7 +269,7 @@ Each figure shows the same frame with one parameter changed; the highlight panel
 
 <p align="center"><img src="docs/images/param_min_h_upper.png" width="80%"></p>
 
-*`min_h_upper` 0 vs 3 (green run, frame 30 at t = 60 s, during the pour: 25 mL of liquid under a tall foam full of large bubbles). Without the filter the bottom-up scan stops on thin bubble edges inside the foam, y = 931.4 px (534 mL, foam 508 mL); with blobs at least 3 rows tall it reaches the foam top at 812.7 px (602 mL, foam 576 mL) — a 119 px, 68 mL difference.*
+*`min_h_upper` 0 vs 15 (green run, frame 108, zoom on the foam top). Without the filter the bottom-up scan stops on a thin bubble edge inside the foam, y = 461.0 px (638 mL, 305 columns); with blobs at least 15 rows tall it reaches the foam top at 431.7 px (653 mL, 237 columns) — a 29 px, 15 mL difference that grows during the pour, when the foam is full of large bubbles.*
 
 <p align="center"><img src="docs/images/param_y_top.png" width="80%"></p>
 
@@ -277,11 +281,11 @@ Each figure shows the same frame with one parameter changed; the highlight panel
 
 <p align="center"><img src="docs/images/param_cx.png" width="80%"></p>
 
-*`cx` 40 vs 157 (green run). With the axis shifted to the left wall the band is clipped to 81 columns near the glass, where the meniscus and refraction bend the interface: lower 1479.5 px (218 mL) instead of 1487.8 px (213 mL), and the upper interface is not found at all. Centred, 129 columns and both interfaces.*
+*`cx` 40 vs 171 (green run). With the axis shifted to the left wall the band is clipped to the columns near the glass (170 lower / 124 upper columns instead of 267 / 237): lower 1259.1 px (221.4 mL) and upper 434.3 px (651.7 mL) instead of 1258.2 / 431.7 px. The shift is small here because the interfaces are flat, but half the band is wasted outside the crop.*
 
 <p align="center"><img src="docs/images/param_channel.png" width="100%"></p>
 
-*`channel` gray / G / R (green run). Gray and G give the same lower interface (1487.8 vs 1488.0 px); G has more contrast on a green screen and validates 119 upper columns instead of 18, at a slightly different row (734.3 vs 722.4 px). R carries almost no signal: the gradient panel is noise and nothing passes the thresholds.*
+*`channel` gray / G / R (green run). Gray (tuned) and G give the same lower interface (1258.2 vs 1258.0 px); G has more contrast on a green screen and validates 338 upper columns instead of 237, but its stronger bubble edges stop the scan 32 px below the foam top (463.6 px, 636 mL, instead of 431.7 px, 653 mL). R carries almost no signal: the gradient panel is noise and nothing passes the thresholds.*
 
 ## Tool 3 — Batch (`scripts/run_batch.py`)
 
@@ -289,12 +293,12 @@ Reads `calib.json` and `params.json`, processes frames `--start .. --end` one in
 
 <table>
 <tr>
-<td align="center" width="50%"><img src="docs/images/batch_figure_green.png" width="100%"><br><em>Green run, frames 0..1120 (1 frame = 60 source frames), 1121 rows, both interfaces found on 1121 / 1118 of them. Liquid + foam peaks at 749.5 mL, the liquid settles on a ~250 mL plateau then drifts to 227.9 mL, the foam decays from 746.6 mL to 131.2 mL after 37 min.</em></td>
+<td align="center" width="50%"><img src="docs/images/batch_figure_green.png" width="100%"><br><em>Green run, frames 0..442 (1 frame = 60 source frames, t = 0 at the pour), 443 rows, the lower interface found on 403 of them and the upper on 422. Liquid + foam peaks at 787 mL, the liquid rises to a 257 mL plateau as it drains out of the foam, the foam decays from 660 mL to 99 mL in 14 min with a visible step at the collapse (t ≈ 12.5 min). The stray points before t = 0 and at the very end are the empty cylinder and the last frame.</em></td>
 <td align="center" width="50%"><img src="docs/images/batch_figure_black.png" width="100%"><br><em>Black run, frames 972..40000 step 60, 651 frames analysed. Liquid + foam peaks at 776.4 mL and ends at 278.9 mL; the liquid plateau is 253.1 mL; the foam decays from 746.7 mL to 25.8 mL in 33 min.</em></td>
 </tr>
 </table>
 
-Both figures carry the $\pm u_\text{total}$ band of the uncertainty budget (about 3 mL), which is barely wider than the lines at this scale. The liquid curve of the green run gets noisier after t ≈ 1800 s as the interface loses contrast; the per-frame `u_method_lower_mL` column records it.
+Both figures carry the $\pm u_\text{total}$ band of the uncertainty budget (about 3 mL), which is barely wider than the lines at this scale. The liquid + foam curve of the green run gets jumpy after t ≈ 700 s as the foam top turns into a sparse layer of large bubbles; the per-frame `u_method_upper_mL` column records it.
 
 <p align="center"><img src="docs/images/frame_step_illustration.png" width="100%"></p>
 
@@ -362,7 +366,7 @@ The run-level value is the **median** over the frames.
 
 <p align="center"><img src="docs/images/uncertainty_method.png" width="100%"></p>
 
-*Lower interface of the green run (frame 108, zoom ×3, foam wash above the line, liquid wash below): 129 per-column detections (red dots) around the mean row 1487.77 px (213.3 mL), dashed bounds 1485 px (214.9 mL, yellow) and 1490 px (212.0 mL, cyan), range 2.87 mL, $u_\text{method}$ = 0.83 mL on this frame; the run median is 0.99 mL.*
+*Lower interface of the green run (frame 108, zoom ×3, foam wash above the line, liquid wash below): 267 per-column detections (red dots) around the mean row 1258.24 px (221.8 mL), dashed bounds 1253 px (224.5 mL, yellow) and 1261 px (220.4 mL, cyan), range 4.08 mL, $u_\text{method}$ = 1.18 mL on this frame; the median over the 403 frames of the batch is 1.04 mL (mean 1.13, p95 1.74 mL).*
 
 **Total**, in quadrature:
 
@@ -370,7 +374,7 @@ $$u_\text{total}(V) = \sqrt{u_\text{cal}^2 + u_\text{px}(V)^2 + u_\text{curv}(V)
 
 <p align="center"><img src="docs/images/uncertainty_budget.png" width="100%"></p>
 
-*Green run: contributions and total versus volume (left) and the share of the variance (right). The scale resolution dominates everywhere; curvature only matters at the ends of the cylinder; the pixel term is negligible.*
+*Green-screen geometry: contributions and total versus volume (left) and the share of the variance (right). The scale resolution dominates everywhere; curvature only matters at the ends of the cylinder; the pixel term is negligible. The three budget figures and the table below come from an earlier green-screen recording of the same setup, calibrated with front and back clicks (the run of the figures above has front clicks only, so its budget would use the `mobius_tilt` geometry).*
 
 | V (mL) | u_cal | u_px | u_curv | u_method | **u_total** |
 |---:|---:|---:|---:|---:|---:|
@@ -399,15 +403,15 @@ liquid-foam-interface-volume-detector/
 │   ├── calibration/           models.py (PCHIP / poly2 / Möbius), clicks.py, back_clicks.py,
 │   │                          store.py (Calibration, PRESETS, JSON), check.py (verification figure)
 │   ├── detection/             gradient.py (Sobel, masks), interfaces.py (DetectionParams, two-pass
-│   │                          detector), panels.py (highlight / gradient / mask, zone wash, specimen
-│   │                          panel, info strip)
-│   ├── ui/                    theme.py (palette, line width, wash colours), controls_panel.py (Tk),
-│   │                          frame_picker.py, tuner.py
+│   │                          detector), panels.py (highlight / gradient / mask, zone wash, readout
+│   │                          boxes, specimen panel, info strip)
+│   ├── ui/                    theme.py (palette, line geometry, wash, fonts), text.py (TrueType text
+│   │                          via Pillow, Hershey fallback), controls_panel.py (Tk), frame_picker.py, tuner.py
 │   ├── pipeline/              run_store.py (run directory), batch.py (CSV rows), plot.py (V(t))
 │   └── uncertainty/           curvature.py (camera geometry, Δ), empirical.py (method), budget.py
 ├── scripts/                   calibrate.py · tune.py · run_batch.py · uncertainty_report.py ·
 │                              make_readme_figures.py
-├── docs/                      uncertainty.md (full derivation) · images/ (every README figure + manifest)
+├── docs/                      uncertainty.md (full derivation) · images/ (every README figure, the GIF + manifest)
 ├── tests/                     pytest, synthetic images only
 ├── SPEC.md                    internal engineering spec
 ├── pyproject.toml · requirements.txt · LICENSE
@@ -417,10 +421,10 @@ liquid-foam-interface-volume-detector/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q          # 72 passed in ~2 s
+python -m pytest -q          # 78 passed in ~3 s
 ```
 
-The tests need no video and no display: synthetic three-band crops (air / foam / liquid, both polarities, with noise) check that the detector finds both interfaces within ±2 px and that swapping the polarity breaks it; the calibration models, the legacy JSON layouts, the curvature geometry (Δ = 0 on the horizon, symmetric growth, $u = \Delta/(2\sqrt{3})$), the empirical spread and the batch/CSV round trip are covered as well.
+The tests need no video and no display: synthetic three-band crops (air / foam / liquid, both polarities, with noise) check that the detector finds both interfaces within ±2 px and that swapping the polarity breaks it; the calibration models, the legacy JSON layouts, the curvature geometry (Δ = 0 on the horizon, symmetric growth, $u = \Delta/(2\sqrt{3})$), the empirical spread, the batch/CSV round trip and the TrueType text helper (font lookup, anchors, backing box, Hershey fallback, readout alignment) are covered as well.
 
 ## Regenerating the figures
 
@@ -428,14 +432,16 @@ Every image in `docs/images/` comes from a real run and is described, with its f
 
 ```bash
 python scripts/make_readme_figures.py \
-    --green-run runs/green --green-video green.mp4 \
+    --green-run runs/green --green-video green.mp4 --frame-scale-green 60 --t0-frame 22 \
     --black-run runs/black --black-video black.mp4 \
     --out docs/images --panel-screenshot
-# --only hero,timeline,param_T_lower   regenerate a subset
+# --only hero,timeline,param_T_lower   regenerate a subset (timeline = strip + detection_timeline.gif)
 # --skip-batch                         reuse the cached batch CSVs from --work-dir
+# --reuse-batch black                  reuse only the black cache (the 5 GB seek), redo the green batch
+# --t0-frame 22                        caption times count from this green frame (start of the pour)
 ```
 
-The overlay style is set in `cylvision/ui/theme.py` (`MEAN_LINE_W`, `FOAM_WASH_BGR`, `LIQUID_WASH_BGR`, `WASH_ALPHA_*`, `LABEL_FONT_SCALE`); the wash and the labels can be switched off per call with `show_wash=False` / `show_labels=False` in `annotate_interfaces` and `make_specimen_panel`.
+The overlay style is set in `cylvision/ui/theme.py`: line geometry (`MEAN_LINE_W` = 3 px flat, `MEAN_LINE_SHADOW_W` = 1 px, `TRIANGLE_W/H`, `LEADER_DOT/GAP` for the dotted leader), wash colours and alphas (`FOAM_WASH_BGR`, `LIQUID_WASH_BGR`, `WASH_ALPHA_*`), and the readout typography (`LABEL_FONT_ZONE` = `DejaVuSans`, `LABEL_FONT_VALUE` = `DejaVuSansMono`, `LABEL_ZONE_SIZE`, `LABEL_VALUE_SIZE`, `LABEL_LETTER_SPACING`, `LABEL_BACKING_*`, `LABEL_BAR_W`). The fonts are the TrueType files shipped with matplotlib (`matplotlib.get_data_path()/fonts/ttf`), rendered with Pillow by `cylvision/ui/text.py`, so the figures come out identical on every machine; any other name from that folder (`DejaVuSerif`, `STIXGeneral`, `cmss10`, `cmtt10`...) or a path to a `.ttf` works, and OpenCV's Hershey font is used if Pillow or the file is missing. The wash and the labels can be switched off per call with `show_wash=False` / `show_labels=False` in `annotate_interfaces` and `make_specimen_panel`.
 
 ## License
 
