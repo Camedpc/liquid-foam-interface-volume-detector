@@ -12,7 +12,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests: pytest](https://img.shields.io/badge/tests-pytest%20%C2%B7%2078%20passed-brightgreen.svg)](#tests)
+[![Tests: pytest](https://img.shields.io/badge/tests-pytest%20%C2%B7%2092%20passed-brightgreen.svg)](#tests)
 [![OpenCV](https://img.shields.io/badge/built%20with-OpenCV%20%C2%B7%20NumPy%20%C2%B7%20SciPy%20%C2%B7%20Matplotlib%20%C2%B7%20Pillow-lightgrey.svg)](requirements.txt)
 
 ## The foam, over time
@@ -35,12 +35,14 @@ Nothing in it is specific to beer: any vertical graduated cylinder filmed by a f
 - **Detects two interfaces per frame** from the vertical intensity gradient $G_y = \partial I/\partial y$: the *lower* interface (liquid/foam) and the *upper* one (foam/air), each averaged over a band of columns around the cylinder axis.
 - **Batches a whole video** into a CSV (row, volume and per-frame spread of each interface) and a $V(t)$ figure, one frame in $K$.
 - **Quantifies the uncertainty** of every reading: calibration, pixel quantisation, cylinder curvature (a graduation is a circle, not a line) and the empirical spread of the detector, combined in quadrature.
+- **Sees inside the foam** on a back-lit setup: an effective absorbance $A = -\ln(I/I_0)$ against a reference of the empty cylinder gives the foam top by threshold and, through a mass balance, the liquid content of the foam as heat maps $A(t, V)$ and $c(t, V)$.
 
 ```mermaid
 flowchart LR
     A["calibrate.py<br/>clicks → calib.json"] --> B["tune.py<br/>live tuner → params.json"]
     B --> C["run_batch.py<br/>video → levels.csv + figure.png"]
     C --> D["uncertainty_report.py<br/>budget table + figures"]
+    B --> E["absorbance_report.py<br/>reference I₀ → A(t, V), c(t, V) heat maps"]
 ```
 
 ## Install
@@ -332,6 +334,61 @@ Both figures carry the $\pm u_\text{total}$ band of the uncertainty budget (abou
 
 </details>
 
+## Absorbance: seeing inside the foam
+
+The two interfaces say how much foam there is, not what it is made of. On the back-lit setup the foam is dark because it *scatters* the light of the green screen, and it scatters more when it holds more liquid (more films, thicker Plateau borders). Comparing every frame with a picture of the **empty cylinder** under the same light turns that darkness into a number per pixel, then into a profile along the height, then — with one mass balance — into the liquid content of the foam. `scripts/absorbance_report.py` does it on a whole video; the figures below come from a third run (back-lit, 1000 mL cylinder, 1 frame = 60 source frames, the pour starting at source frame 1347).
+
+<p align="center"><img src="docs/images/absorbance_measurement.png" width="100%"></p>
+
+*Frame 231 (t = 418 s after the start of the pour). Left to right: the reference $I_0$ (mean of frames 5–14, empty cylinder; the printed marks are the pixels that get masked), the live frame, the absorbance map $A(x, y)$ and the radial profile $A(z)$ averaged over the dashed band $|x - c_x| \le 64$ px. The red line is the liquid/foam interface from the gradient detector (y = 1199.9 px, 251.6 mL); the teal line is the foam top from the threshold on the profile: $A_\text{max} = 1.64$, $T = A_\text{max}/5 = 0.33$, first row above the liquid with $A < T$ at y = 631 px (548.7 mL), so 297.1 mL of foam. The shaded area $\int A\,dz$ is what enters the mass balance. Below the liquid line the profile sits at $A \approx 0.15$: the beer itself absorbs a little; the two spikes near 145 and 135 mL are printed rings that the dead-pixel fill did not fully remove.*
+
+**Step by step.**
+
+1. **Reference.** $I_0(x, y)$ is the per-pixel mean of $N = 10$ consecutive frames of the empty, back-lit cylinder before the pour (`--ref-frames 5:15`), on the green channel (the colour of the screen). Pixels darker than `dead_thresh` = 178 in the reference — printed graduations and numbers, glass defects — are not measurements of the back-light: they are masked, the mask is dilated by `dead_dilate` = 2 px, and the masked pixels are replaced by the mean of their valid neighbours (a mask-aware box filter of radius 5 px). The same fill is applied to every live frame, then both are blurred with the same Gaussian ($\sigma$ = 1 px), so that $I$ and $I_0$ are treated identically.
+
+2. **Absorbance map.** For each live frame,
+
+$$A(x, y) = -\ln\frac{\max(I(x, y), 1)}{\max(I_0(x, y), 1)}.$$
+
+   Because the reference is per pixel, the non-uniformity of the screen, the vignetting of the lens and the glass cancel out in the ratio. This is Beer–Lambert *in form only*: the attenuation is multiple scattering by the foam films, not absorption, so $A$ is an **effective** extinction $\mu_\text{eff}\,d$ along the optical path $d$ through the cylinder — monotone in the amount of liquid on the path, but not a calibrated absorption coefficient. $A$ is not clamped below zero: a negative value means the frame is brighter than the reference, i.e. the back-light drifted.
+
+3. **Profile.** $A(z) = \langle A(x, z)\rangle_{|x - c_x| \le r_\text{dens}}$ with $r_\text{dens}$ = 64 px, narrower than the cylinder so that the dark glass walls stay out of the average.
+
+4. **Foam top by threshold.** $A_\text{max} = \max A(z)$ over $[y_\text{top}, y_\text{liquid})$ and $T = A_\text{max}/k$ with $k$ = 5. Scanning **upwards from the liquid/foam interface** (which the gradient detector reads sharply), the first row with $A(z) < T$ is the foam/air interface. When the top of the foam is diffuse — big bubbles, a surface that breathes — the gradient threshold hesitates between bubble edges while the absolute level of $A$ does not; scanning bottom-up returns the lowest exit of the foam, so foam left on the glass higher up is ignored.
+
+5. **Mass balance.** The liquid held inside the foam is the beer missing from the bottom, $V_\infty - V_\text{beer}(t)$, where $V_\infty$ is the final liquid volume once the foam is gone (`--v-inf auto` takes the maximum of $V_\text{beer}$ over the run: 256.96 mL here). Writing the liquid volume fraction of the foam as $c(z) = \gamma A(z)$ and integrating over the foam column of section $S$:
+
+$$\gamma(t) = \frac{V_\infty - V_\text{beer}(t)}{S \displaystyle\int_\text{foam} A(z)\,dz}, \qquad c(z, t) = \gamma(t)\,A(z, t),$$
+
+   with $S = \pi D^2/4$ = 35.3 cm² ($D$ = 6.7 cm bore) and $dz$ = 1 px / (`px_per_cm`). By default the vertical scale is taken from the calibration itself, $\text{px\_per\_cm} = S / |dV/dy|$ (68.1 px/cm here), which makes $S\int A\,dz$ consistent with the volumes read on the scale: $c$ is then a true volume fraction, and $S\int c\,dz$ gives back the missing beer. $c$ is NaN outside the foam. (Multiplying by the density of the beer, 1.016 g/mL, gives the g/mL of the original analysis.)
+
+<p align="center"><img src="docs/images/heatmap_A.png" width="100%"></p>
+
+*$A(t, V)$: every column is one profile $A(z)$ with the rows converted to mL through the calibration (frames 23–442, one every 2 s of source time). Red: the liquid/foam interface from the gradient detector — the liquid climbs from 83 mL at t = 33 s to its 257 mL plateau (dotted line) in about 300 s. Teal: the foam top for the $k$ used (5); the thin lines are $k$ = 2…10 (threshold from $A_\text{max}/2$ to $A_\text{max}/10$). The foam peaks at 644.5 mL at t = 33 s and collapses from 242.9 to 110.9 mL between t = 725.8 and 727.8 s (the foam top drops from 500 to 366 mL in one frame). The dark region under the red line is the beer ($A \approx 0.15$).*
+
+<p align="center"><img src="docs/images/heatmap_c.png" width="100%"></p>
+
+*$c(t, V) = \gamma A$, the liquid volume fraction of the foam (inverted grey: black = wet, white = dry or no foam). At t = 33 s the foam holds 174 mL of beer in 644 mL of foam: 27 % on average, 22 % at its base, 6 % at its top. At t = 171 s it is 8 % (35 mL in 428 mL), at t = 418 s 1.8 % (5.3 mL in 297 mL), and by the collapse at t ≈ 727 s the beer has settled (0.4 mL missing): what is left is a dry foam that the mass balance can barely see.*
+
+**What the heat maps show.** Drainage. Right after the pour the foam is wet everywhere and wettest at the bottom, where the liquid it is losing accumulates before crossing into the beer; the liquid front (red) climbs while the foam top (teal) sinks, and between them the foam dries from the top down — the top of the foam turns white on $c(t, V)$ long before its base does. The absorbance itself decays more slowly than the liquid content (the drained foam still scatters), which is why $A(t, V)$ stays bright while $c(t, V)$ fades: $\gamma$ falls from 0.18 at t = 33 s to 0.016 at 418 s and 0.002 at 726 s. The collapse at t ≈ 727 s is a coarsening/rupture event of a foam that had become almost dry, not a drainage step: it removes 132 mL of foam and only 0.4 mL of beer.
+
+```bash
+python scripts/absorbance_report.py --video run09/subsampled_step60.mp4 --run-dir run09 \
+    --params run09/params_gradient.json --ref-frames 5:15 --frame-scale 60 --t0-frame 1347 \
+    --start 23 --k 5 --r-dens 64 --v-inf auto --measurement-frame 231 --out-dir out/run09
+# options: --px-per-cm auto|68  --section-cm2 35.3  --channel G  --light-blur 1  --dead-thresh 178  --dead-dilate 2  --step 1
+```
+
+The report needs the run's `calib.json` and the gradient parameters of the liquid/foam interface (`params.json`, or `--params`); it writes `absorbance.npz` (`A` and `c` as `n_frames × H` arrays, `t`, `frame_idx`, `z`, `y_liquid`, `y_foam_top`, `gamma`), `absorbance.csv` (per frame: `y_liquid_px`, `y_foam_top_px`, `V_beer_mL`, `V_foam_mL`, `A_max`, `threshold`, `integral_A_cm`, `gamma`), `absorbance_meta.json` and the three figures above. `t_sec` is counted from `--t0-frame` (a source-frame index) so that t = 0 is the start of the pour.
+
+**Caveats.**
+
+- *Effective, not Beer–Lambert.* $A$ compares the foam with the empty cylinder, nothing more. It depends on the bubble size as well as on the liquid content (smaller bubbles scatter more for the same liquid fraction), so $c = \gamma A$ assumes the absorbance is proportional to the liquid content within one frame; the mass balance fixes the scale frame by frame, not the shape.
+- *A stable back-light.* Any drift of the screen between the reference frames and the live frames goes straight into $A$ (a 5 % brightening reads as $A = -0.05$ everywhere). The sign of $A$ in the air above the foam is the check: it should stay at 0.
+- *$k$ is a tuning parameter.* The foam top moves with the threshold — on frame 231, $V_\text{foam}$ reads 265.7 mL for $k$ = 2, 286.6 (3), 292.9 (4), **297.1 (5)**, 301.8 (6), 302.8 (7), 304.4 (8), 306.0 (9) and 313.3 mL for $k$ = 10: ±2 % between $k$ = 4 and 8, ±8 % over the whole sweep. The thin lines of the $A(t, V)$ map show the same spread over the run; $k$ = 2 occasionally falls into a hole of low absorbance inside the foam (the spikes at t ≈ 120 s and 365 s), which is why a bottom-up scan needs a threshold well below $A_\text{max}$.
+- *The vertical scale of the mass balance.* $\gamma$ and $c$ scale as $1/(S\,dz)$: with the section of the preset and `px_per_cm` from the calibration the numbers above are volume fractions; with another `--px-per-cm` (the original analysis used 20 px/cm, 3.4× too small for this video) the maps keep their shape but the colour bar changes by that factor.
+- *Dead pixels.* 43 % of the crop is masked on this run (the walls of the glass and the base are dark in the reference too), which is harmless because the profile only uses the central band; inside the band the mask is the printed marks, whose residue is visible as thin horizontal lines on both maps.
+
 ## Uncertainty budget
 
 Every volume comes with a standard uncertainty ($k = 1$) built from four independent terms. The full derivation is in [`docs/uncertainty.md`](docs/uncertainty.md); this is the summary. Whenever a quantity is only known to lie in an interval of width $w$, the uniform-distribution rule $u = w / \sqrt{12}$ is used.
@@ -408,9 +465,11 @@ liquid-foam-interface-volume-detector/
 │   ├── ui/                    theme.py (palette, line geometry, wash, fonts), text.py (TrueType text
 │   │                          via Pillow, Hershey fallback), controls_panel.py (Tk), frame_picker.py, tuner.py
 │   ├── pipeline/              run_store.py (run directory), batch.py (CSV rows), plot.py (V(t))
-│   └── uncertainty/           curvature.py (camera geometry, Δ), empirical.py (method), budget.py
+│   ├── uncertainty/           curvature.py (camera geometry, Δ), empirical.py (method), budget.py
+│   └── absorbance/            reference.py (I₀, dead pixels), beer_lambert.py (A map, A(z), foam top,
+│                              mass balance), batch.py (video → A(t, z)), heatmap.py (figures)
 ├── scripts/                   calibrate.py · tune.py · run_batch.py · uncertainty_report.py ·
-│                              make_readme_figures.py
+│                              absorbance_report.py · make_readme_figures.py
 ├── docs/                      uncertainty.md (full derivation) · images/ (every README figure, the GIF + manifest)
 ├── tests/                     pytest, synthetic images only
 ├── SPEC.md                    internal engineering spec
@@ -421,10 +480,10 @@ liquid-foam-interface-volume-detector/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q          # 78 passed in ~3 s
+python -m pytest -q          # 92 passed in ~20 s
 ```
 
-The tests need no video and no display: synthetic three-band crops (air / foam / liquid, both polarities, with noise) check that the detector finds both interfaces within ±2 px and that swapping the polarity breaks it; the calibration models, the legacy JSON layouts, the curvature geometry (Δ = 0 on the horizon, symmetric growth, $u = \Delta/(2\sqrt{3})$), the empirical spread, the batch/CSV round trip and the TrueType text helper (font lookup, anchors, backing box, Hershey fallback, readout alignment) are covered as well.
+The tests need no video and no display: synthetic three-band crops (air / foam / liquid, both polarities, with noise) check that the detector finds both interfaces within ±2 px and that swapping the polarity breaks it; the calibration models, the legacy JSON layouts, the curvature geometry (Δ = 0 on the horizon, symmetric growth, $u = \Delta/(2\sqrt{3})$), the empirical spread, the batch/CSV round trip and the TrueType text helper (font lookup, anchors, backing box, Hershey fallback, readout alignment) are covered as well. `tests/test_absorbance.py` builds a uniform bright reference with printed marks and a darker foam band: the map recovers $-\ln(I/I_0)$, the dead-pixel fill leaves valid pixels untouched, the profile threshold finds the top of the band (and moves the right way with $k$ on a diffuse edge), $\gamma$ and $c$ integrate back to a known missing volume, and the three figures are written.
 
 ## Regenerating the figures
 
@@ -439,6 +498,9 @@ python scripts/make_readme_figures.py \
 # --skip-batch                         reuse the cached batch CSVs from --work-dir
 # --reuse-batch black                  reuse only the black cache (the 5 GB seek), redo the green batch
 # --t0-frame 22                        caption times count from this green frame (start of the pour)
+# --only absorbance --absorbance-run runs/backlit --absorbance-video backlit.mp4 \
+#     --absorbance-params runs/backlit/params_gradient.json     the absorbance figures (third run;
+#     --absorbance-ref-frames 5:15 --absorbance-t0-frame 1347   the green/black runs are not needed)
 ```
 
 The overlay style is set in `cylvision/ui/theme.py`: line geometry (`MEAN_LINE_W` = 3 px flat, `MEAN_LINE_SHADOW_W` = 1 px, `TRIANGLE_W/H`, `LEADER_DOT/GAP` for the dotted leader), wash colours and alphas (`FOAM_WASH_BGR`, `LIQUID_WASH_BGR`, `WASH_ALPHA_*`), and the readout typography (`LABEL_FONT_ZONE` = `DejaVuSans`, `LABEL_FONT_VALUE` = `DejaVuSansMono`, `LABEL_ZONE_SIZE`, `LABEL_VALUE_SIZE`, `LABEL_LETTER_SPACING`, `LABEL_BACKING_*`, `LABEL_BAR_W`). The fonts are the TrueType files shipped with matplotlib (`matplotlib.get_data_path()/fonts/ttf`), rendered with Pillow by `cylvision/ui/text.py`, so the figures come out identical on every machine; any other name from that folder (`DejaVuSerif`, `STIXGeneral`, `cmss10`, `cmtt10`...) or a path to a `.ttf` works, and OpenCV's Hershey font is used if Pillow or the file is missing. The wash and the labels can be switched off per call with `show_wash=False` / `show_labels=False` in `annotate_interfaces` and `make_specimen_panel`.

@@ -18,6 +18,12 @@ cached as CSV in ``--work-dir``; ``--skip-batch`` reuses the cache.
 
 ``--only name,name`` regenerates a subset (names are the PNG stems).
 
+The ``absorbance`` group needs a THIRD run: a back-lit video whose first
+frames show the empty cylinder (``--absorbance-run``, ``--absorbance-video``,
+``--absorbance-params`` for the liquid/foam gradient parameters,
+``--absorbance-ref-frames a:b`` for the reference frames). The green and
+black runs are only required for the other groups.
+
 Example::
 
     python scripts/make_readme_figures.py --green-run runs/green --green-video green.mp4 \\
@@ -45,6 +51,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from cylvision.absorbance import (  # noqa: E402
+    AbsorbanceParams,
+    finalize_mass_balance,
+    foam_tops_for_ks,
+    foam_volume_vs_k,
+    plot_heatmap_A,
+    plot_heatmap_c,
+    plot_measurement_figure,
+    prepare_reference,
+    process_video_absorbance,
+    px_per_cm_from_calibration,
+    reference_from_video,
+    volume_window,
+)
+from cylvision.absorbance.batch import DEFAULT_KS  # noqa: E402
+from cylvision.absorbance.beer_lambert import S_CM2  # noqa: E402
 from cylvision.calibration import (  # noqa: E402
     Calibration,
     build_click_prompts,
@@ -62,6 +84,7 @@ from cylvision.detection import (  # noqa: E402
     make_label_strip,
     make_threshold_panel,
 )
+from cylvision.detection.interfaces import band_columns  # noqa: E402
 from cylvision.detection.panels import (  # noqa: E402
     SEP,
     draw_readout,
@@ -109,6 +132,14 @@ GREEN_FRAMES = {"empty": 8, "pouring": 30, "peak": 39, "best": 108, "later": 300
 GREEN_T0_FRAME = 22                 # default --t0-frame: times count from the start of the pour
 BLACK_FRAMES = {"early": 1032, "best": 2472, "mid": 6972, "late": 20972}
 BLACK_BATCH = (972, 40000, 60)      # start, end, step
+
+# Absorbance run (back-lit, 1 frame = 60 source frames): the reference frames show the
+# empty cylinder, the pour starts at source frame t0_frame, the measurement figure uses
+# measurement_frame.
+ABS_DEFAULTS: dict[str, Any] = {
+    "ref_frames": "5:15", "t0_frame": 1347.0, "frame_scale": 60.0, "start": 23, "measurement_frame": 231,
+    "k": 5.0, "r_dens": 64, "px_per_cm": None, "dead_thresh": 178.0, "dead_dilate": 2,   # None = from the calibration
+}
 
 
 # ---------------------------------------------------------------------------
@@ -1002,6 +1033,77 @@ def fig_uncertainty_method(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
                                          for k, v in mu.items()}))
 
 
+def fig_absorbance(g: RunCtx | None, b: RunCtx | None, m: Manifest, absorbance: dict[str, Any] | None = None,
+                   **_: Any) -> None:
+    """``heatmap_A``, ``heatmap_c``, ``absorbance_measurement``: the back-lit run through the absorbance analysis."""
+    if not absorbance:
+        print("  absorbance figures skipped (no --absorbance-run / --absorbance-video)")
+        return
+    ctx: RunCtx = absorbance["ctx"]
+    o = absorbance["opts"]
+    a, b_ref = (int(v) for v in str(o["ref_frames"]).split(":"))
+    px_per_cm = (px_per_cm_from_calibration(ctx.calib, S_CM2) if o["px_per_cm"] is None
+                 else float(o["px_per_cm"]))
+    abs_params = AbsorbanceParams(channel="G", light_blur=1.0, r_dens=int(o["r_dens"]), foam_k=float(o["k"]),
+                                  dead_thresh=float(o["dead_thresh"]), dead_dilate=int(o["dead_dilate"]),
+                                  px_per_cm=px_per_cm, y_top=int(ctx.params.y_top), cx=int(ctx.params.cx))
+    print(f"  px_per_cm = {px_per_cm:.2f}")
+    x_left, x_right, _, _ = ctx.calib.crop()
+    ref = reference_from_video(ctx.video, a, b_ref, crop=(x_left, x_right))
+    prep = prepare_reference(ref, abs_params)
+    m_frame = int(o["measurement_frame"])
+    t0 = time.perf_counter()
+    end = ctx.video.n_frames - 1
+    run, maps = process_video_absorbance(ctx.video, ctx.calib, ctx.params, abs_params, prep, ctx.model_fn,
+                                         start=int(o["start"]), end=end, frame_step=1,
+                                         t0_frame=float(o["t0_frame"]), time_scale=ctx.time_scale,
+                                         progress=False, keep_maps=(m_frame,))
+    finalize_mass_balance(run, None, abs_params.section_cm2)
+    print(f"  absorbance: {run.n} frames in {time.perf_counter() - t0:.0f} s, V_inf = {run.V_inf_ml:.2f} mL, "
+          f"foam top on {int(np.isfinite(run.y_foam_top).sum())} frames")
+    ks = tuple(sorted(set(DEFAULT_KS) | {int(o["k"])}))
+    tops = foam_tops_for_ks(run, ks, y_top=abs_params.y_top)
+    y_range = volume_window(ctx.calib, run.A.shape[1])
+    i_m = int(np.where(run.frame_idx == m_frame)[0][0])
+    sweep = foam_volume_vs_k(run, i_m, ctx.model_fn, ks, y_top=abs_params.y_top)
+    src = source_of(ctx, m_frame, absorbance_params=abs_params.to_dict(), ref_frames=[a, b_ref],
+                    t0_frame=float(o["t0_frame"]), t_since_pour_s=round(float(run.t_sec[i_m]), 2),
+                    V_inf_ml=float(run.V_inf_ml),
+                    frames=f"{int(o['start'])}..{end} step 1",
+                    k_sweep={str(k): {"y_foam_top_px": y, "V_foam_mL": v} for k, (y, v) in sweep.items()},
+                    n_dead_pixels=int(prep.n_dead))
+    name = ctx.video.path.name
+    tmp = m.out_dir / "heatmap_A.png"
+    plot_heatmap_A(run.A, run.t_sec, model_fn=ctx.model_fn, y_range=y_range, out_png=tmp,
+                   y_liquid=run.y_liquid, foam_tops=tops, k_main=int(o["k"]), V_inf_ml=run.V_inf_ml,
+                   title=f"Effective absorbance A(t, V) - {name}, band |x - cx| <= {abs_params.r_dens} px, "
+                         f"reference frames {a}..{b_ref - 1}")
+    m.save_figure_png("heatmap_A", tmp,
+                      "A(t, V) of the back-lit run: radial mean of the absorbance per row, rows converted to mL "
+                      "through the calibration; liquid/foam interface (red), foam top for k = 2..10 with the "
+                      "k used in teal, final liquid volume dotted.", src)
+    tmp = m.out_dir / "heatmap_c.png"
+    plot_heatmap_c(run.c, run.t_sec, model_fn=ctx.model_fn, y_range=y_range, out_png=tmp,
+                   y_liquid=run.y_liquid, y_foam_top=run.y_foam_top,
+                   title=f"Liquid content of the foam c(t, V) = γ A - {name}, V∞ = {run.V_inf_ml:.1f} mL "
+                         f"(mass balance)")
+    m.save_figure_png("heatmap_c", tmp,
+                      "c(t, V) = gamma A: liquid volume fraction inside the foam from the mass balance "
+                      "(V_inf - V_beer = S integral c dz), inverted grey, white outside the foam.", src)
+    res = maps[m_frame]
+    band = band_columns(res.A.shape[1], abs_params.resolved_cx(res.A.shape[1]), abs_params.r_dens)
+    tmp = m.out_dir / "absorbance_measurement.png"
+    plot_measurement_figure(prep.raw, res.intensity, res.A, res.A_z, y_liquid=res.y_liquid,
+                            y_foam_top=res.y_foam_top, A_max=res.A_max, threshold=res.threshold, band=band,
+                            model_fn=ctx.model_fn, y_range=y_range, out_png=tmp, k=abs_params.foam_k,
+                            title=f"How the absorbance is measured - frame {m_frame} "
+                                  f"(t = {run.t_sec[i_m]:.0f} s after the start of the pour)")
+    m.save_figure_png("absorbance_measurement", tmp,
+                      "Reference frame of the empty cylinder, live frame, absorbance map A(x, y) and the radial "
+                      "profile A(z) with the threshold A_max / k and both interfaces.",
+                      src | {"result": res.to_dict()})
+
+
 FIGURES: dict[str, tuple[Callable[..., None], tuple[str, ...]]] = {
     "hero": (fig_hero, ("hero", "tuner_canvas_inline")),
     "timeline": (fig_timeline, ("timeline_green", "detection_timeline")),
@@ -1019,6 +1121,7 @@ FIGURES: dict[str, tuple[Callable[..., None], tuple[str, ...]]] = {
     "batch": (fig_batch, ("batch_figure_green", "batch_figure_black")),
     "uncertainty": (fig_uncertainty, ("uncertainty_schematic", "uncertainty_curvature", "uncertainty_budget")),
     "uncertainty_method": (fig_uncertainty_method, ("uncertainty_method",)),
+    "absorbance": (fig_absorbance, ("heatmap_A", "heatmap_c", "absorbance_measurement")),
 }
 
 
@@ -1036,10 +1139,10 @@ def _configure_stdout() -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--green-run", type=Path, required=True, help="run dir of the green-screen video")
-    p.add_argument("--green-video", type=Path, required=True, help="green-screen video")
-    p.add_argument("--black-run", type=Path, required=True, help="run dir of the black-background video")
-    p.add_argument("--black-video", type=Path, required=True, help="black-background video")
+    p.add_argument("--green-run", type=Path, default=None, help="run dir of the green-screen video")
+    p.add_argument("--green-video", type=Path, default=None, help="green-screen video")
+    p.add_argument("--black-run", type=Path, default=None, help="run dir of the black-background video")
+    p.add_argument("--black-video", type=Path, default=None, help="black-background video")
     p.add_argument("--green-params", type=Path, default=None,
                    help="params.json of the green run (default: <green-run>/params.json)")
     p.add_argument("--black-params", type=Path, default=None,
@@ -1058,6 +1161,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="open the Tk control panel briefly and grab control_panel.png")
     p.add_argument("--only", type=str, default=None,
                    help="comma-separated figure groups or PNG stems to regenerate (default: all)")
+    a = p.add_argument_group("absorbance group (back-lit run with an empty-cylinder reference)")
+    a.add_argument("--absorbance-run", type=Path, default=None, help="run dir of the absorbance video")
+    a.add_argument("--absorbance-video", type=Path, default=None, help="back-lit video (pre-subsampled or not)")
+    a.add_argument("--absorbance-params", type=Path, default=None,
+                   help="params.json of the liquid/foam gradient detector (default: <absorbance-run>/params.json)")
+    a.add_argument("--absorbance-ref-frames", type=str, default=ABS_DEFAULTS["ref_frames"],
+                   help="frames a:b of the empty cylinder (default %(default)s)")
+    a.add_argument("--absorbance-t0-frame", type=float, default=ABS_DEFAULTS["t0_frame"],
+                   help="SOURCE frame of the start of the pour, t = 0 (default %(default)s)")
+    a.add_argument("--absorbance-frame-scale", type=float, default=ABS_DEFAULTS["frame_scale"],
+                   help="source frames per video frame (default %(default)s)")
+    a.add_argument("--absorbance-start", type=int, default=ABS_DEFAULTS["start"],
+                   help="first analysed frame (default %(default)s)")
+    a.add_argument("--absorbance-frame", type=int, default=ABS_DEFAULTS["measurement_frame"],
+                   help="frame of the measurement figure (default %(default)s)")
+    a.add_argument("--absorbance-k", type=float, default=ABS_DEFAULTS["k"],
+                   help="foam-top threshold k (default %(default)s)")
+    a.add_argument("--absorbance-r-dens", type=int, default=ABS_DEFAULTS["r_dens"],
+                   help="profile band half-width in px (default %(default)s)")
+    a.add_argument("--absorbance-px-per-cm", type=float, default=None,
+                   help="vertical scale in px per cm (default: from the calibration slope and the section)")
     return p.parse_args(argv)
 
 
@@ -1083,21 +1207,36 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = Manifest(out_dir)
 
-    g = load_ctx("green", args.green_run, args.green_video, args.green_params, args.frame_scale_green,
-                 t0_frame=args.t0_frame)
-    b = load_ctx("black", args.black_run, args.black_video, args.black_params, 1.0)
+    needs_runs = [x for x in groups if x != "absorbance"]
+    if needs_runs and not all((args.green_run, args.green_video, args.black_run, args.black_video)):
+        sys.exit("--green-run/--green-video and --black-run/--black-video are required for the groups "
+                 f"{needs_runs} (only the absorbance group works without them)")
+    g = b = None
+    absorbance: dict[str, Any] | None = None
+    if needs_runs:
+        g = load_ctx("green", args.green_run, args.green_video, args.green_params, args.frame_scale_green,
+                     t0_frame=args.t0_frame)
+        b = load_ctx("black", args.black_run, args.black_video, args.black_params, 1.0)
+    if "absorbance" in groups and args.absorbance_run and args.absorbance_video:
+        ctx_a = load_ctx("absorbance", args.absorbance_run, args.absorbance_video, args.absorbance_params,
+                         args.absorbance_frame_scale)
+        absorbance = {"ctx": ctx_a, "opts": {
+            **ABS_DEFAULTS, "ref_frames": args.absorbance_ref_frames, "t0_frame": args.absorbance_t0_frame,
+            "start": args.absorbance_start, "measurement_frame": args.absorbance_frame, "k": args.absorbance_k,
+            "r_dens": args.absorbance_r_dens, "px_per_cm": args.absorbance_px_per_cm}}
     try:
         batches: dict[str, list[dict]] = {}
-        if any(x in groups for x in ("frame_step", "batch", "uncertainty")):
+        if g is not None and b is not None and any(x in groups for x in ("frame_step", "batch", "uncertainty")):
             batches = run_batches(g, b, args.work_dir, args.skip_batch,
                                   reuse=[x.strip() for x in args.reuse_batch.split(",") if x.strip()])
         for name in groups:
             fn, _files = FIGURES[name]
             print(f"[{name}]")
-            fn(g, b, manifest, batches=batches, panel_screenshot=args.panel_screenshot)
+            fn(g, b, manifest, batches=batches, panel_screenshot=args.panel_screenshot, absorbance=absorbance)
     finally:
-        g.video.close()
-        b.video.close()
+        for ctx in (g, b, None if absorbance is None else absorbance["ctx"]):
+            if ctx is not None:
+                ctx.video.close()
     manifest.write()
     return 0
 
