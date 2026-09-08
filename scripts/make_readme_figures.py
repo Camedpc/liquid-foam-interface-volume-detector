@@ -72,6 +72,16 @@ from cylvision.absorbance import (  # noqa: E402
     volume_window,
 )
 from cylvision.absorbance.batch import DEFAULT_KS  # noqa: E402
+from cylvision.absorbance.heatmap import (  # noqa: E402
+    INK,
+    add_absorbance_colorbar,
+    draw_absorbance_panel,
+    draw_band_lines,
+    draw_interface_rows,
+    draw_profile_panel,
+    style_image_axes,
+    volume_axis,
+)
 from cylvision.absorbance.beer_lambert import S_CM2  # noqa: E402
 from cylvision.calibration import (  # noqa: E402
     Calibration,
@@ -92,11 +102,10 @@ from cylvision.detection import (  # noqa: E402
 )
 from cylvision.detection.interfaces import band_columns  # noqa: E402
 from cylvision.detection.panels import (  # noqa: E402
+    READOUT_LIGHT,
     SEP,
-    draw_mean_line,
     draw_readout,
     make_specimen_panel,
-    mean_line_width,
     readout_rows,
     readout_size,
     volume_labels,
@@ -534,9 +543,18 @@ GIF_FRAMES = (22, 30, 39, 50, 60, 80, 108, 130, 150, 175, 200, 225, 250, 275, 30
 GIF_HEIGHT = 620           # height (px) of every GIF frame (the specimen, the A map and the profile alike)
 GIF_FRAME_MS = 650         # display time of a GIF frame; the last one stays 4x longer (20 frames -> 15 s)
 GIF_MAX_BYTES = 6_000_000
-GIF_GAP = 8                # gap (px) between the three columns of the combined GIF
-GIF_PROFILE_W = 330        # width (px) of the A(z) profile column (matplotlib), colour bar included
 GIF_ABS_VMAX = 1.75        # fixed scale of the A(x, y) colours and of the A(z) axis, every frame alike
+# Pixel layout of the combined frame (a white matplotlib figure at GIF_DPI, built from the panel
+# blocks of cylvision.absorbance.heatmap): [specimen | mL axis | A(x, y) map | colour bar | A(z)].
+GIF_DPI = 100
+GIF_MARGIN = 8             # outer margin (px)
+GIF_TITLE_H = 26           # title strip ("frame N, t = ... after the start of the pour")
+GIF_MAP_AXIS_W = 62        # room for the mL axis at the left of the map
+GIF_CB = (8, 12, 34)       # gap | colour bar | its tick labels (px)
+GIF_PROFILE_W = 400        # width (px) of the A(z) axes
+GIF_XAXIS_H = 36           # room for the x ticks + label of the profile
+GIF_CAPTION_H = 22         # per-panel captions under the panels
+GIF_FONT_SCALE = 0.8       # font sizes of the measurement figure x this
 # Absorbance settings of the combined GIF (the README heat maps use the same ones): the
 # reference I0 is the mean of sub frames 5..14 (empty cylinder), band |x - cx| <= r_dens,
 # foam top at the first row above the liquid with A < A_max / k.
@@ -551,14 +569,16 @@ def cylinder_window(ctx: RunCtx, frame_w: int, *, margin_left: int, margin_right
 
 
 def detected_panel(ctx: RunCtx, idx: int, *, height: int, margin_left: int, margin_right: int,
-                   label_scale: float | None = None, pad_right: int | None = None
-                   ) -> tuple[np.ndarray, InterfaceResult]:
+                   label_scale: float | None = None, pad_right: int | None = None,
+                   light: bool = False) -> tuple[np.ndarray, InterfaceResult]:
     """Specimen panel (wash + thick lines + braces + volumes) around the cylinder.
 
     The frame is cropped to ``[x_left - margin_left, x_right + margin_right)``
     and extended on the right by a dark margin (``pad_right`` output px, sized
     for the longest label by default) so the brace labels never leave the
-    picture. Returns the panel at ``height`` px and the detection.
+    picture. Returns the panel at ``height`` px and the detection. ``light``
+    composes the panel for a white figure (white margin, pale readout boxes,
+    grey braces).
     """
     frame = ctx.frame(idx)
     H, W = frame.shape[:2]
@@ -573,10 +593,11 @@ def detected_panel(ctx: RunCtx, idx: int, *, height: int, margin_left: int, marg
     extra = max(0, x1 + pad_native - W)
     if extra:
         pad = np.empty((H, extra, 3), dtype=np.uint8)
-        pad[:] = theme.BG_BGR
+        pad[:] = (255, 255, 255) if light else theme.BG_BGR
         frame = np.concatenate([frame, pad], axis=1)
     panel = make_specimen_panel(frame, ctx.calib.crop(), res, zoom=z, model_fn=ctx.model_fn,
-                                label_scale=fs)
+                                label_scale=fs, readout_style=READOUT_LIGHT if light else None,
+                                brace_color=theme.BRACE_LIGHT_BGR if light else None)
     c0 = int(round(x0 * z))
     c1 = int(round((x1 + pad_native) * z))
     return np.ascontiguousarray(panel[:, c0:c1]), res
@@ -767,187 +788,136 @@ def gif_absorbance_setup(g: RunCtx) -> tuple[AbsorbanceParams, Any]:
     return abs_params, prepare_reference(ref, abs_params)
 
 
-def _inferno_bgr(values01: np.ndarray) -> np.ndarray:
-    from matplotlib import colormaps
-
-    lut = (np.asarray(colormaps["inferno"](np.linspace(0.0, 1.0, 256)))[:, :3] * 255.0).round().astype(np.uint8)
-    idx = np.clip(np.nan_to_num(values01, nan=0.0) * 255.0, 0, 255).round().astype(np.uint8)
-    return np.ascontiguousarray(lut[idx][..., ::-1])
+def gif_row_window(g: RunCtx, H: int) -> tuple[int, int]:
+    """Rows of the frame shown by every panel of the combined GIF: the top of the frame down to the
+    bottom of the calibrated window (the foam peak sits above the highest clicked graduation)."""
+    return 0, volume_window(g.calib, H)[1]
 
 
-def _dashed_vline(img: np.ndarray, x: int, color: tuple[int, int, int], *, dash: int = 6, gap: int = 5) -> None:
-    h = img.shape[0]
-    if not 0 <= x < img.shape[1]:
-        return
-    y = 0
-    while y < h:
-        img[y:min(h, y + dash), x] = color
-        y += dash + gap
+def gif_header_light(ctx: RunCtx, idx: int, res: InterfaceResult, width: int) -> np.ndarray:
+    """White header of the specimen column: run / step at the left, the light readout box at the right."""
+    t = ctx.t_sec(idx)
+    t_txt = f"{t:.0f} s" if abs(t) < 600 else f"{t / 60:.1f} min"
+    rows = [("time", t_txt, None)]
+    vol = readout_rows(res, ctx.model_fn)
+    for key in ("total", "foam", "liquid"):
+        rows.append(vol.get(key, (key, "--", None)))
+    w_box = readout_size([("liquid", "8888 mL", None)], scale=GIF_READOUT_SCALE)[0]
+    header = np.full((gif_header_height(), int(width), 3), 255, dtype=np.uint8)
+    draw_readout(header, (header.shape[1] - 2, 6), rows, "rt", scale=GIF_READOUT_SCALE, min_width=w_box,
+                 **READOUT_LIGHT)
+    uitext.draw_text(header, "green screen", (4, 8), theme.LABEL_FONT_ZONE, 12, theme.LABEL_LIGHT_BGR, "lt")
+    uitext.draw_text(header, "1 frame = 60 src", (4, 26), theme.LABEL_FONT_ZONE, 11, theme.LABEL_LIGHT_ZONE_BGR, "lt")
+    uitext.draw_text(header, "gradient detector", (4, 42), theme.LABEL_FONT_ZONE, 11, theme.LABEL_LIGHT_ZONE_BGR,
+                     "lt")
+    return header
 
 
-def absorbance_map_panel(A: np.ndarray, z: float, height: int, *, y_liquid: float | None,
-                         y_foam_top: int | None, band: tuple[int, int]) -> np.ndarray:
-    """``A(x, y)`` of the crop as an inferno panel at the specimen scale ``z`` (rows registered).
+def _rgb(img_bgr: np.ndarray) -> np.ndarray:
+    return cv2.cvtColor(np.ascontiguousarray(img_bgr), cv2.COLOR_BGR2RGB)
 
-    The map is resampled with the same target size rule as
-    :func:`make_specimen_panel` (``round(W z)`` x ``height``), so its row ``r``
-    is the row ``r`` of the specimen panel; the two interfaces are drawn with
-    the same flat lines at ``round((y + 0.5) z)``.
+
+def absorbance_gif_frame(g: RunCtx, idx: int, *, abs_params: AbsorbanceParams, prep: Any,
+                         band: tuple[int, int], y_range: tuple[int, int]
+                         ) -> tuple[np.ndarray, InterfaceResult, Any]:
+    """One frame of ``detection_absorbance_timeline.gif`` (BGR), plus the detection and the absorbance result.
+
+    A white matplotlib figure at ``GIF_DPI``: the specimen panel (light
+    style) pasted 1:1 into an axes whose data rows are ``y_range``, then the
+    ``A(x, y)`` map, the colour bar and the ``A(z)`` profile drawn by the
+    same panel blocks as ``absorbance_measurement.png``
+    (:mod:`cylvision.absorbance.heatmap`) into axes of the same pixel height
+    and the same row limits, so a pixel row is the same physical level in
+    the three panels. A title strip above, a caption under each panel.
     """
-    H, W = A.shape
-    tw = max(1, int(round(W * z)))
-    small = cv2.resize(np.nan_to_num(A, nan=0.0).astype(np.float32), (tw, int(height)),
-                       interpolation=cv2.INTER_AREA)
-    panel = _inferno_bgr(small / GIF_ABS_VMAX)
+    det, res = detected_panel(g, idx, height=GIF_HEIGHT, margin_left=54, margin_right=10,
+                              label_scale=GIF_READOUT_SCALE, light=True)
+    H = prep.I0.shape[0]
+    z = GIF_HEIGHT / H
+    y_min, y_max = int(y_range[0]), int(y_range[1])
 
-    def sy(y: float) -> int:
+    def sy(y: float) -> int:      # the row rule of make_specimen_panel
         return int(round((y + 0.5) * z))
 
-    def sx(x: float) -> int:
-        return int(round((x + 0.5) * z))
+    r0, r1 = sy(y_min), sy(y_max)
+    spec = det[r0:r1]
+    ax_h = r1 - r0
+    spec_w = det.shape[1]
+    header = gif_header_light(g, idx, res, spec_w)
+    hdr_h = header.shape[0]
+    crop = crop_frame(g.frame(idx), g.calib)
+    ares = analyse_crop(crop, prep, abs_params, res.y_lower)
+    map_w = max(1, int(round(ares.A.shape[1] * z)))
 
-    for x in band:
-        _dashed_vline(panel, sx(x), (31, 210, 255))
-    lw = mean_line_width(z)
-    if y_liquid is not None:
-        draw_mean_line(panel, 0, tw - 1, sy(float(y_liquid)), theme.LOWER_BGR, lw)
-    if y_foam_top is not None:
-        draw_mean_line(panel, 0, tw - 1, sy(float(y_foam_top)), theme.UPPER_BGR, lw)
-    return panel
-
-
-def absorbance_profile_panel(A_z: np.ndarray, H: int, *, width: int, height: int, y_liquid: float | None,
-                             y_foam_top: int | None, A_max: float, threshold: float, k: float,
-                             y_range: tuple[int, int], y_top: int, model_fn: Callable[..., Any]) -> np.ndarray:
-    """``A(z)`` profile at ``width`` x ``height`` px, rows ``0..H`` of the crop mapped on the full height.
-
-    Same elements as the right panel of ``absorbance_measurement.png``: the
-    profile (light on the dark theme), the dashed threshold ``A_max / k``,
-    the two interface rows, the shaded foam integral, the ``A_max`` value;
-    ``x`` fixed at ``0 .. GIF_ABS_VMAX``, a thin colour bar of the map at the
-    right, 100 mL gridlines through the calibration. Rendered with Agg at the
-    exact pixel size (figure inches = px / dpi), no bounding-box cropping.
-    """
-    import matplotlib as mpl
-    from cylvision.absorbance.heatmap import FOAM_COLOR, LIQUID_COLOR, volume_ticks
-
-    dpi = 100
-    ink, ink_soft, grid, bg = "#e9e9ee", "#a9a9b4", "#2c2c34", theme.BG
-    fig = Figure(figsize=(width / dpi, height / dpi), dpi=dpi, facecolor=bg)
+    x_spec = GIF_MARGIN
+    x_map = x_spec + spec_w + GIF_MAP_AXIS_W
+    x_cb = x_map + map_w + GIF_CB[0]
+    x_prof = x_cb + GIF_CB[1] + GIF_CB[2]
+    fw = x_prof + GIF_PROFILE_W + GIF_MARGIN
+    y_hdr = GIF_TITLE_H
+    y_ax = y_hdr + hdr_h
+    fh = y_ax + ax_h + GIF_XAXIS_H + GIF_CAPTION_H + GIF_MARGIN
+    fig = Figure(figsize=(fw / GIF_DPI, fh / GIF_DPI), dpi=GIF_DPI, facecolor="white")
     canvas = FigureCanvasAgg(fig)
-    cb_x0, cb_w = width - 52, 9
-    ax = fig.add_axes([10 / width, 0.0, (cb_x0 - 24) / width, 1.0], facecolor=bg)
-    ax.set_ylim(float(H), 0.0)
-    ax.set_xlim(-0.04, GIF_ABS_VMAX)
-    rows = np.arange(H)
-    y_min, y_max = int(y_range[0]), int(y_range[1])
-    ticks_y, ticks_lab = volume_ticks(model_fn, y_min, y_max, 100.0)
-    for yy, lab in zip(ticks_y, ticks_lab):
-        ax.axhline(float(yy), color=grid, linewidth=0.6)
-        ax.text(GIF_ABS_VMAX - 0.03, float(yy), lab, ha="right", va="bottom", fontsize=6, color=ink_soft)
-    for xv in (0.5, 1.0, 1.5):
-        ax.axvline(xv, color=grid, linewidth=0.6)
-    prof = np.asarray(A_z, dtype=np.float32)
-    if y_foam_top is not None and y_liquid is not None:
-        yl = int(round(float(y_liquid)))
-        yt = int(y_foam_top)
-        if yl > yt:
-            ax.fill_betweenx(rows[yt:yl], 0, np.nan_to_num(prof[yt:yl]), color="#f6c7a0", alpha=0.5, linewidth=0)
-    ax.plot(prof[y_min:y_max], rows[y_min:y_max], color=ink, linewidth=1.1)
-    if threshold > 0:
-        ax.axvline(threshold, color=FOAM_COLOR, linestyle="--", linewidth=1.1)
-    if y_liquid is not None:
-        ax.axhline(float(y_liquid), color=LIQUID_COLOR, linewidth=1.8)
-    if y_foam_top is not None:
-        ax.axhline(float(y_foam_top), color=FOAM_COLOR, linewidth=1.8)
-    if y_liquid is not None:
-        hi = int(round(float(y_liquid)))
-        lo = max(0, int(y_top))
-        if hi > lo and np.isfinite(prof[lo:hi]).any():
-            y_amax = lo + int(np.nanargmax(prof[lo:hi]))
-            ax.annotate(f"A_max = {A_max:.2f}", (A_max, y_amax), xytext=(-6, 0), textcoords="offset points",
-                        ha="right", va="center", fontsize=7, color=ink_soft)
-    ax.text(0.97, 0.06, "A(z)", transform=ax.transAxes, ha="right", va="bottom", fontsize=7.5, color=ink_soft)
-    ax.set_xticks([0.0, 0.5, 1.0, 1.5])
-    ax.tick_params(axis="x", direction="in", pad=-11, labelsize=6.5, colors=ink_soft, length=3)
-    ax.tick_params(axis="y", left=False, labelleft=False)
-    for sp in ax.spines.values():
-        sp.set_color(grid)
-    cax = fig.add_axes([cb_x0 / width, 0.08, cb_w / width, 0.84])
-    sm = mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(0.0, GIF_ABS_VMAX), cmap="inferno")
-    cb = fig.colorbar(sm, cax=cax, ticks=[0.0, 0.5, 1.0, 1.5])
-    cb.outline.set_edgecolor(grid)
-    cb.ax.tick_params(colors=ink_soft, labelsize=6.5, length=2)
-    cax.set_title("A", fontsize=7.5, color=ink_soft, pad=3)
+
+    def rect(x: int, y_top: int, w: int, h: int) -> list[float]:
+        return [x / fw, 1.0 - (y_top + h) / fh, w / fw, h / fh]
+
+    ax_hdr = fig.add_axes(rect(x_spec, y_hdr, spec_w, hdr_h))
+    ax_hdr.imshow(_rgb(header), interpolation="nearest", aspect="auto")
+    ax_hdr.axis("off")
+    ax_s = fig.add_axes(rect(x_spec, y_ax, spec_w, ax_h))
+    ax_s.imshow(_rgb(spec), extent=(0, spec_w, y_max, y_min), aspect="auto", interpolation="nearest")
+    style_image_axes(ax_s)
+    ax_s.tick_params(axis="y", left=False, labelleft=False)
+    ax_m = fig.add_axes(rect(x_map, y_ax, map_w, ax_h))
+    im = draw_absorbance_panel(ax_m, ares.A, y_range, vmax=GIF_ABS_VMAX)
+    draw_band_lines(ax_m, band)
+    draw_interface_rows(ax_m, ares.y_liquid, ares.y_foam_top)
+    volume_axis(ax_m, g.model_fn, y_min, y_max, step_ml=100.0, font_scale=GIF_FONT_SCALE)
+    ax_cb = fig.add_axes(rect(x_cb, y_ax, GIF_CB[1], ax_h))
+    add_absorbance_colorbar(fig, im, ax_cb, font_scale=GIF_FONT_SCALE)
+    ax_p = fig.add_axes(rect(x_prof, y_ax, GIF_PROFILE_W, ax_h))
+    draw_profile_panel(ax_p, ares.A_z, y_range=y_range, y_liquid=ares.y_liquid, y_foam_top=ares.y_foam_top,
+                       A_max=ares.A_max, threshold=ares.threshold, band=band, k=abs_params.foam_k,
+                       model_fn=g.model_fn, vmax_A=GIF_ABS_VMAX, xlim=(-0.04, GIF_ABS_VMAX),
+                       legend_loc="lower right", font_scale=GIF_FONT_SCALE)
+
+    fig.text(GIF_MARGIN / fw, 1.0 - 6 / fh, f"frame {idx}, {g.t_label(idx)} after the start of the pour",
+             fontsize=10, color=INK, ha="left", va="top")
+    y_cap = (GIF_MARGIN + GIF_CAPTION_H / 2) / fh
+    for x_c, text in ((x_spec + spec_w / 2, f"detected frame — {g.t_label(idx)}"),
+                      (x_map + map_w / 2, "effective absorbance A(x, y) = −ln(I / I₀)"),
+                      (x_prof + GIF_PROFILE_W / 2,
+                       f"radial profile A(z) and the foam-top threshold A_max / {abs_params.foam_k:g}")):
+        fig.text(x_c / fw, y_cap, text, fontsize=8.5, color=INK, ha="center", va="center")
     canvas.draw()
     rgba = np.asarray(canvas.buffer_rgba())
     bgr = cv2.cvtColor(np.ascontiguousarray(rgba[:, :, :3]), cv2.COLOR_RGB2BGR)
-    if bgr.shape[0] != height or bgr.shape[1] != width:
-        bgr = cv2.resize(bgr, (int(width), int(height)), interpolation=cv2.INTER_AREA)
-    return bgr
-
-
-def _col_header(width: int, lines: Sequence[tuple[str, tuple[int, int, int]]]) -> np.ndarray:
-    header = np.empty((gif_header_height(), int(width), 3), dtype=np.uint8)
-    header[:] = theme.BG_BGR
-    y = 8
-    for i, (text, color) in enumerate(lines):
-        uitext.draw_text(header, text, (6, y), theme.LABEL_FONT_ZONE, 12 if i == 0 else 11, color, "lt")
-        y += 18 if i == 0 else 16
-    return header
+    return bgr, res, ares
 
 
 def fig_timeline_absorbance(g: RunCtx, b: RunCtx | None, m: Manifest, **_: Any) -> None:
     """``detection_absorbance_timeline.gif`` (detection | A(x, y) | A(z), one row axis) and ``detection_timeline.gif``.
 
-    Every frame of ``GIF_FRAMES``: the specimen panel of :func:`gif_frame`,
-    the absorbance map of the same crop rows at the same scale, and the
-    ``A(z)`` profile rendered at the same pixel height; the three columns
-    share their header height, so a pixel row is the same physical level in
-    all of them. The detection-only GIF is written from the same frames and
-    durations, so the two animations are synchronised by construction.
+    Every frame of ``GIF_FRAMES`` goes through :func:`absorbance_gif_frame`;
+    the detection-only GIF is written from the same frames and durations
+    (:func:`gif_frame`), so the two animations are synchronised by
+    construction.
     """
     abs_params, prep = gif_absorbance_setup(g)
     H = prep.I0.shape[0]
-    z = GIF_HEIGHT / H
-    y_range = volume_window(g.calib, H)
+    y_range = gif_row_window(g, H)
     cx = abs_params.resolved_cx(prep.I0.shape[1])
     band = band_columns(prep.I0.shape[1], cx, abs_params.r_dens)
-    hdr_h = gif_header_height()
-    gap = np.empty((hdr_h + GIF_HEIGHT, GIF_GAP, 3), dtype=np.uint8)
-    gap[:] = theme.BG_BGR
     det_frames, combined, meta = [], [], []
     t0 = time.perf_counter()
     for idx in GIF_FRAMES:
         if idx >= g.video.n_frames:
             continue
-        det_img, res = gif_frame(g, idx)
-        crop = crop_frame(g.frame(idx), g.calib)
-        ares = analyse_crop(crop, prep, abs_params, res.y_lower)
-        amap = absorbance_map_panel(ares.A, z, GIF_HEIGHT, y_liquid=ares.y_liquid, y_foam_top=ares.y_foam_top,
-                                    band=band)
-        prof = absorbance_profile_panel(ares.A_z, H, width=GIF_PROFILE_W, height=GIF_HEIGHT,
-                                        y_liquid=ares.y_liquid, y_foam_top=ares.y_foam_top, A_max=ares.A_max,
-                                        threshold=ares.threshold, k=abs_params.foam_k, y_range=y_range,
-                                        y_top=abs_params.y_top, model_fn=g.model_fn)
-        if ares.y_foam_top is not None and ares.y_liquid is not None:
-            V_top = float(np.asarray(g.model_fn(np.array([float(ares.y_foam_top)])), dtype=float).ravel()[0])
-            V_liq = float(np.asarray(g.model_fn(np.array([float(ares.y_liquid)])), dtype=float).ravel()[0])
-            foam_txt = f"foam top {V_top:.0f} mL  ->  foam {V_top - V_liq:.0f} mL"
-            foam_col = theme.UPPER_BGR
-            thr_txt = f"A_max = {ares.A_max:.2f}   T = A_max / {abs_params.foam_k:g} = {ares.threshold:.2f}"
-        else:
-            foam_txt = "no foam top (no liquid row)"
-            foam_col = theme.SUBTEXT_BGR
-            thr_txt = "A_max, T: need the liquid row"
-        map_hdr = _col_header(amap.shape[1], [("A(x, y)", theme.TEXT_BGR), ("= -ln(I / I₀)", theme.SUBTEXT_BGR),
-                                              (f"I₀: frames {GIF_ABS['ref_frames'][0]}-"
-                                               f"{GIF_ABS['ref_frames'][1] - 1}", theme.SUBTEXT_BGR)])
-        prof_hdr = _col_header(prof.shape[1], [(f"A(z), mean over |x - cx| <= {abs_params.r_dens} px",
-                                                theme.TEXT_BGR), (thr_txt, theme.SUBTEXT_BGR),
-                                               (foam_txt, foam_col)])
-        frame = np.concatenate([det_img, gap, np.concatenate([map_hdr, amap], axis=0), gap,
-                                np.concatenate([prof_hdr, prof], axis=0)], axis=1)
+        frame, res, ares = absorbance_gif_frame(g, idx, abs_params=abs_params, prep=prep, band=band,
+                                                y_range=y_range)
+        det_img, _ = gif_frame(g, idx)
         det_frames.append(det_img)
         combined.append(frame)
         meta.append({"frame": idx, "t_sec": round(g.t_sec(idx), 2), "y_lower": res.y_lower, "y_upper": res.y_upper,
@@ -955,18 +925,23 @@ def fig_timeline_absorbance(g: RunCtx, b: RunCtx | None, m: Manifest, **_: Any) 
     if not combined:
         return
     print(f"  {len(combined)} frames analysed in {time.perf_counter() - t0:.0f} s")
+    z = GIF_HEIGHT / H
     src = source_of(g, None, frames=meta, absorbance_params=abs_params.to_dict(),
                     ref_frames=list(GIF_ABS["ref_frames"]), A_scale=[0.0, GIF_ABS_VMAX],
-                    layout="specimen panel | A(x, y) map | A(z) profile + colour bar, one row axis "
-                           f"(rows 0..{H} of the frame at {z:.4f} px/px), header {hdr_h} px",
+                    rows=list(y_range),
+                    layout="white matplotlib figure: title strip | specimen panel (light readouts) | mL axis | "
+                           "A(x, y) map | colour bar | A(z) profile, captions under the panels; the three "
+                           f"panels share the row limits {list(y_range)} at {z:.4f} px/px",
                     n_dead_pixels=int(prep.n_dead))
     write_gif(m, "detection_absorbance_timeline.gif", combined,
               f"Detection | A(x, y) | A(z) of the green-screen run, {len(combined)} frames from the pour to after "
-              "the foam collapse, vertically registered (same crop rows, same scale): specimen panel with the "
-              "readout (t, three volumes), effective absorbance map against the empty-cylinder reference "
-              f"(inferno, fixed scale 0..{GIF_ABS_VMAX}), radial profile A(z) with the threshold A_max / k, the "
-              "liquid/foam row (red, gradient detector) and the foam top by threshold (teal), the shaded foam "
-              f"integral; {GIF_FRAME_MS} ms per frame, the last one held 4x longer.", src)
+              "the foam collapse, vertically registered (same rows, same scale) on a white figure with a title "
+              "strip (frame, t after the start of the pour) and a caption under each panel: specimen panel with "
+              "the readout (t, three volumes), effective absorbance map against the empty-cylinder reference "
+              f"(inferno, fixed scale 0..{GIF_ABS_VMAX}, mL axis), radial profile A(z) with the threshold "
+              "A_max / k, the liquid/foam row (red, gradient detector) and the foam top by threshold (teal), the "
+              f"shaded foam integral, drawn by the panel blocks of absorbance_measurement.png; {GIF_FRAME_MS} ms "
+              "per frame, the last one held 4x longer.", src)
     write_gif(m, "detection_timeline.gif", det_frames, detection_gif_description(len(det_frames)),
               source_of(g, None, frames=[{k: v for k, v in d.items() if k != "absorbance"} for d in meta]))
 

@@ -41,7 +41,7 @@ given. The text is TrueType through :mod:`cylvision.ui.text`.
 """
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import cv2
@@ -197,6 +197,12 @@ def dotted_hline(img: np.ndarray, x0: int, x1: int, y: int, color: tuple[int, in
 
 ReadoutRow = tuple[str, str, tuple[int, int, int] | None]   # (word, value, bar colour)
 
+READOUT_LIGHT: dict[str, Any] = {
+    "backing": theme.LABEL_LIGHT_BACKING_BGR, "backing_alpha": theme.LABEL_LIGHT_BACKING_ALPHA,
+    "word_color": theme.LABEL_LIGHT_ZONE_BGR, "value_color": theme.LABEL_LIGHT_BGR,
+}
+"""``draw_readout`` keyword arguments of the light style (dark text on a pale box, for white figures)."""
+
 
 def _readout_sizes(scale: float) -> tuple[int, int, float]:
     zs = max(6, int(round(theme.LABEL_ZONE_SIZE * scale)))
@@ -224,7 +230,9 @@ def readout_size(rows: Sequence[ReadoutRow], *, scale: float = 1.0, min_width: i
 def draw_readout(img: np.ndarray, xy: tuple[int, int], rows: Sequence[ReadoutRow], anchor: str = "lt", *,
                  scale: float = 1.0, min_width: int | None = None,
                  word_color: tuple[int, int, int] | None = None,
-                 value_color: tuple[int, int, int] | None = None) -> tuple[int, int, int, int]:
+                 value_color: tuple[int, int, int] | None = None,
+                 backing: tuple[int, int, int] | None = None,
+                 backing_alpha: float | None = None) -> tuple[int, int, int, int]:
     """Instrument-style readout box; returns its ``(x0, y0, x1, y1)``.
 
     Each row is ``(word, value, bar_bgr)``: the word is printed in small
@@ -236,7 +244,9 @@ def draw_readout(img: np.ndarray, xy: tuple[int, int], rows: Sequence[ReadoutRow
     ``anchor`` positions the box like :func:`cylvision.ui.text.draw_text`
     (``"lt"``, ``"lm"``, ``"rb"``...); ``min_width`` widens the box so that
     several boxes share the same right edge; ``scale`` multiplies the theme
-    font sizes.
+    font sizes. ``backing`` / ``backing_alpha`` / ``word_color`` /
+    ``value_color`` override the theme (``READOUT_LIGHT`` is the set for a
+    white figure).
     """
     if not rows:
         return (int(xy[0]), int(xy[1]), int(xy[0]), int(xy[1]))
@@ -246,7 +256,9 @@ def draw_readout(img: np.ndarray, xy: tuple[int, int], rows: Sequence[ReadoutRow
     w, h, _ww, _vw = readout_size(rows, scale=scale, min_width=min_width)
     x0, y0 = uitext._origin(xy, w, h, anchor)
     x1, y1 = x0 + w - 1, y0 + h - 1
-    uitext.fill_rect_alpha(img, x0, y0, x1, y1, theme.LABEL_BACKING_BGR, theme.LABEL_BACKING_ALPHA,
+    uitext.fill_rect_alpha(img, x0, y0, x1, y1,
+                           theme.LABEL_BACKING_BGR if backing is None else backing,
+                           theme.LABEL_BACKING_ALPHA if backing_alpha is None else float(backing_alpha),
                            radius=theme.LABEL_BACKING_RADIUS)
     row_h = (h - 2 * py) // len(rows)
     bar_w = int(theme.LABEL_BAR_W)
@@ -743,7 +755,9 @@ def make_specimen_panel(frame_bgr: np.ndarray, calib_crop: Sequence[int],
                         show_wash: bool = True,
                         model_fn: Callable[[Any], Any] | None = None,
                         line_w: int | None = None,
-                        label_scale: float | None = None) -> np.ndarray:
+                        label_scale: float | None = None,
+                        readout_style: Mapping[str, Any] | None = None,
+                        brace_color: tuple[int, int, int] | None = None) -> np.ndarray:
     """Full frame with the interfaces drawn across the cylinder and braces.
 
     ``calib_crop = (x_left, x_right, y_top, y_bottom)`` in frame
@@ -762,8 +776,12 @@ def make_specimen_panel(frame_bgr: np.ndarray, calib_crop: Sequence[int],
     ``labels[1]`` with the volumes when ``model_fn`` is given, and a
     ``total`` readout sits at the upper interface. The three boxes share
     one width so their numbers form a column. ``label_scale`` multiplies
-    the theme font sizes.
+    the theme font sizes; ``readout_style`` (keyword arguments of
+    :func:`draw_readout`, e.g. ``READOUT_LIGHT``) and ``brace_color``
+    restyle the boxes and the braces for a light background.
     """
+    rs: dict[str, Any] = dict(readout_style or {})
+    brace_c = theme.BRACE_BGR if brace_color is None else brace_color
     x_left0, x_right0, y_top0, y_bottom0 = (int(v) for v in calib_crop[:4])
     base = frame_bgr if frame_bgr.ndim == 3 else cv2.cvtColor(frame_bgr, cv2.COLOR_GRAY2BGR)
     H0, W0 = base.shape[:2]
@@ -837,11 +855,11 @@ def make_specimen_panel(frame_bgr: np.ndarray, calib_crop: Sequence[int],
     tips: dict[str, tuple[int, int]] = {}
     if draw_braces:
         if yu is not None and yl is not None and yl - yu >= 4:
-            tip = draw_brace_right(panel, yu, yl, brace_x, arm=brace_arm, mid_arm=brace_mid)
+            tip = draw_brace_right(panel, yu, yl, brace_x, brace_c, arm=brace_arm, mid_arm=brace_mid)
             if tip is not None:
                 tips["foam"] = tip
         if yl is not None and y_bottom - yl >= 4:
-            tip = draw_brace_right(panel, yl, y_bottom, brace_x, arm=brace_arm, mid_arm=brace_mid)
+            tip = draw_brace_right(panel, yl, y_bottom, brace_x, brace_c, arm=brace_arm, mid_arm=brace_mid)
             if tip is not None:
                 tips["liquid"] = tip
         for yy, color in ((yu, theme.UPPER_BGR), (yl, theme.LOWER_BGR)):
@@ -860,17 +878,17 @@ def make_specimen_panel(frame_bgr: np.ndarray, calib_crop: Sequence[int],
     # both the TOTAL and the FOAM boxes).
     for key in ("foam", "liquid"):
         if key in rows and key in tips:
-            draw_readout(panel, (x_txt, tips[key][1]), [rows[key]], "lm", scale=sc, min_width=box_w)
+            draw_readout(panel, (x_txt, tips[key][1]), [rows[key]], "lm", scale=sc, min_width=box_w, **rs)
     if "total" in rows and yu is not None and yl is not None:
         if (yl - yu) >= int(2.2 * box_h):
-            draw_readout(panel, (x_txt, yu), [rows["total"]], "lm", scale=sc, min_width=box_w)
+            draw_readout(panel, (x_txt, yu), [rows["total"]], "lm", scale=sc, min_width=box_w, **rs)
         elif yu - box_h - 2 >= 0:
-            draw_readout(panel, (x_txt, yu - 2), [rows["total"]], "lb", scale=sc, min_width=box_w)
+            draw_readout(panel, (x_txt, yu - 2), [rows["total"]], "lb", scale=sc, min_width=box_w, **rs)
     return panel
 
 
 __all__ = [
-    "LABEL_HEIGHT", "SEP", "PANEL_LABELS", "ZONE_BAR_BGR",
+    "LABEL_HEIGHT", "SEP", "PANEL_LABELS", "ZONE_BAR_BGR", "READOUT_LIGHT",
     "dashed_hline", "dotted_hline", "draw_inward_arrow", "draw_brace_right",
     "mean_line_width", "draw_mean_line", "wash_zones", "volume_labels",
     "readout_rows", "readout_size", "draw_readout",

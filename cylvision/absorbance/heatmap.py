@@ -63,12 +63,7 @@ def volume_ticks(model_fn: ModelFn, y_min: float, y_max: float,
 
 def _volume_axis(ax: Any, model_fn: ModelFn, y_min: float, y_max: float, *,
                  color: str, step_ml: float = 50.0) -> None:
-    y_ticks, labels = volume_ticks(model_fn, y_min, y_max, step_ml)
-    ax.set_yticks(y_ticks)
-    ax.set_yticklabels(labels)
-    ax.set_ylim(y_max, y_min)  # rows grow downwards: volume grows upwards
-    ax.set_ylabel("volume on the scale (mL)", color=color, fontsize=10)
-    ax.tick_params(axis="y", colors=color, labelsize=9)
+    volume_axis(ax, model_fn, y_min, y_max, color=color, step_ml=step_ml)
 
 
 def time_edges(t: np.ndarray) -> np.ndarray:
@@ -261,6 +256,151 @@ def _fmt_ml(model_fn: ModelFn, y: float | None) -> str:
     return f"{v:.0f} mL"
 
 
+# ---------------------------------------------------------------------------
+# Measurement panels (shared by the measurement figure and the README animation)
+# ---------------------------------------------------------------------------
+
+BAND_COLOR = "#ffd21f"
+FOAM_FILL_COLOR = "#f6c7a0"
+
+
+def default_vmax_A(A: np.ndarray, y_range: tuple[int, int]) -> float:
+    """99.5th percentile of the finite ``A`` values inside the row window (1.0 when empty)."""
+    y_min, y_max = int(y_range[0]), int(y_range[1])
+    sub = A[y_min:y_max]
+    finite = np.isfinite(sub)
+    return float(np.percentile(sub[finite], 99.5)) if finite.any() else 1.0
+
+
+def style_image_axes(ax: Any, title: str | None = None, *, font_scale: float = 1.0) -> None:
+    """Image panel: no x ticks, ``GRID`` spines, optional title above."""
+    if title:
+        ax.set_title(title, fontsize=9.5 * font_scale, color=INK, pad=6)
+    ax.set_xticks([])
+    for sp in ax.spines.values():
+        sp.set_color(GRID)
+
+
+def draw_intensity_panel(ax: Any, intensity: np.ndarray, y_range: tuple[int, int], *,
+                         grey_max: float | None = None, title: str | None = None,
+                         font_scale: float = 1.0) -> Any:
+    """Grey image of an intensity plane over the rows ``y_range``; returns the ``AxesImage``."""
+    y_min, y_max = int(y_range[0]), int(y_range[1])
+    W = intensity.shape[1]
+    if grey_max is None:
+        grey_max = float(max(np.nanmax(intensity), 1.0))
+    im = ax.imshow(intensity[y_min:y_max], cmap="gray", vmin=0, vmax=grey_max, extent=(0, W, y_max, y_min),
+                   aspect="auto", interpolation="nearest")
+    style_image_axes(ax, title, font_scale=font_scale)
+    return im
+
+
+def draw_absorbance_panel(ax: Any, A: np.ndarray, y_range: tuple[int, int], *, vmax: float,
+                          title: str | None = None, font_scale: float = 1.0) -> Any:
+    """``inferno`` image of ``A(x, y)`` over the rows ``y_range`` (``0 .. vmax``); returns the ``AxesImage``."""
+    y_min, y_max = int(y_range[0]), int(y_range[1])
+    W = A.shape[1]
+    im = ax.imshow(A[y_min:y_max], cmap="inferno", vmin=0, vmax=vmax, extent=(0, W, y_max, y_min),
+                   aspect="auto", interpolation="nearest")
+    style_image_axes(ax, title, font_scale=font_scale)
+    return im
+
+
+def add_absorbance_colorbar(fig: Any, im: Any, cax: Any, *, font_scale: float = 1.0) -> Any:
+    """Colour bar of the absorbance map in ``cax`` (label ``A``)."""
+    cb = fig.colorbar(im, cax=cax)
+    cb.set_label("A", color=INK_SOFT, fontsize=9 * font_scale)
+    cb.ax.tick_params(colors=INK_SOFT, labelsize=8 * font_scale)
+    return cb
+
+
+def draw_band_lines(ax: Any, band: tuple[int, int]) -> None:
+    """Dashed yellow columns of the profile band ``|x - cx| <= r_dens``."""
+    for x in band:
+        ax.axvline(x, color=BAND_COLOR, linewidth=0.9, linestyle="--", alpha=0.9)
+
+
+def draw_interface_rows(ax: Any, y_liquid: float | None, y_foam_top: int | None, *,
+                        linewidth: float = 1.8) -> None:
+    """Red liquid / foam row and teal foam / air row across an axes."""
+    if y_liquid is not None:
+        ax.axhline(float(y_liquid), color=LIQUID_COLOR, linewidth=linewidth)
+    if y_foam_top is not None:
+        ax.axhline(float(y_foam_top), color=FOAM_COLOR, linewidth=linewidth)
+
+
+def draw_profile_panel(ax_p: Any, A_z: np.ndarray, *, y_range: tuple[int, int], y_liquid: float | None,
+                       y_foam_top: int | None, A_max: float, threshold: float, band: tuple[int, int],
+                       k: float, model_fn: ModelFn, vmax_A: float, title: str | None = None,
+                       xlim: tuple[float, float] | None = None, legend_loc: str = "upper right",
+                       font_scale: float = 1.0) -> None:
+    """``A(z)`` with the threshold, the two interface rows, the shaded foam integral and the annotations.
+
+    ``xlim`` fixes the absorbance axis (default: from the data, ``0 ..
+    max(vmax_A, A_max) * 1.08``); ``font_scale`` multiplies every font size
+    (the README animation renders the panel small).
+    """
+    y_min, y_max = int(y_range[0]), int(y_range[1])
+    H = len(A_z)
+    rows = np.arange(H)
+    x_lo, x_hi = band
+    fs = float(font_scale)
+    ax_p.plot(A_z, rows, color=INK, linewidth=1.3,
+              label=f"A(z), mean over |x − cₓ| ≤ {(x_hi - x_lo) // 2} px (dashed band)")
+    ax_p.axvline(threshold, color=FOAM_COLOR, linestyle="--", linewidth=1.2,
+                 label=f"threshold T = A_max / {k:g} = {threshold:.2f}")
+    if y_foam_top is not None and y_liquid is not None:
+        yl = int(round(float(y_liquid)))
+        ax_p.fill_betweenx(rows[y_foam_top:yl], 0, np.nan_to_num(A_z[y_foam_top:yl]), color=FOAM_FILL_COLOR,
+                           alpha=0.55, linewidth=0, label="foam: ∫A dz enters the mass balance")
+    draw_interface_rows(ax_p, y_liquid, y_foam_top)
+    if xlim is None:
+        sub = A_z[y_min:y_max]
+        lo = float(np.nanmin(sub)) if np.isfinite(sub).any() else 0.0
+        xlim = (min(0.0, lo) - 0.02, max(vmax_A, A_max) * 1.08)
+        x_text = max(vmax_A, A_max) * 1.05
+    else:
+        x_text = float(xlim[1]) - 0.03 * (float(xlim[1]) - float(xlim[0]))
+    ax_p.set_xlim(float(xlim[0]), float(xlim[1]))
+    ax_p.set_ylim(y_max, y_min)
+    ax_p.set_xlabel("effective absorbance A(z)", color=INK_SOFT, fontsize=10 * fs)
+    ax_p.grid(True, color=GRID, linewidth=0.7)
+    ax_p.set_axisbelow(True)
+    ax_p.tick_params(colors=INK_SOFT, labelsize=9 * fs)
+    ax_p.tick_params(axis="y", labelleft=False, length=0)
+    for sp in ax_p.spines.values():
+        sp.set_color(GRID)
+    if title:
+        ax_p.set_title(title, fontsize=9.5 * fs, color=INK, pad=6)
+    if y_liquid is not None:
+        ax_p.annotate(f"liquid / foam (gradient detector)  y = {float(y_liquid):.1f} px  ·  "
+                      f"{_fmt_ml(model_fn, y_liquid)} of liquid",
+                      (x_text, float(y_liquid)), xytext=(-4, -6), textcoords="offset points", ha="right",
+                      va="top", fontsize=8 * fs, color=LIQUID_COLOR)
+    if y_foam_top is not None:
+        ax_p.annotate(f"foam / air (first row with A < T)  y = {int(y_foam_top)} px  ·  "
+                      f"{_fmt_ml(model_fn, y_foam_top)} liquid + foam",
+                      (x_text, float(y_foam_top)), xytext=(-4, 6), textcoords="offset points", ha="right",
+                      va="bottom", fontsize=8 * fs, color=FOAM_COLOR)
+    if y_liquid is not None and np.isfinite(A_z[:int(round(float(y_liquid)))]).any():
+        y_amax = int(np.nanargmax(A_z[:int(round(float(y_liquid)))]))
+        ax_p.annotate(f"A_max = {A_max:.2f}", (A_max, y_amax), xytext=(-8, 0), textcoords="offset points",
+                      ha="right", va="center", fontsize=8 * fs, color=INK_SOFT,
+                      arrowprops={"arrowstyle": "-", "color": INK_SOFT, "lw": 0.6})
+    ax_p.legend(loc=legend_loc, fontsize=7.5 * fs, framealpha=0.9, labelcolor=INK)
+
+
+def volume_axis(ax: Any, model_fn: ModelFn, y_min: float, y_max: float, *, color: str = INK_SOFT,
+                step_ml: float = 50.0, font_scale: float = 1.0) -> None:
+    """Public form of the mL axis: ticks every ``step_ml`` through the calibration, rows inverted."""
+    y_ticks, labels = volume_ticks(model_fn, y_min, y_max, step_ml)
+    ax.set_yticks(y_ticks)
+    ax.set_yticklabels(labels)
+    ax.set_ylim(y_max, y_min)
+    ax.set_ylabel("volume on the scale (mL)", color=color, fontsize=10 * font_scale)
+    ax.tick_params(axis="y", colors=color, labelsize=9 * font_scale)
+
+
 def plot_measurement_figure(ref_intensity: np.ndarray, live_intensity: np.ndarray, A: np.ndarray,
                             A_z: np.ndarray, *, y_liquid: float | None, y_foam_top: int | None,
                             A_max: float, threshold: float, band: tuple[int, int],
@@ -272,15 +412,15 @@ def plot_measurement_figure(ref_intensity: np.ndarray, live_intensity: np.ndarra
     ``band = (x_lo, x_hi)`` are the columns averaged into ``A(z)``; both
     interfaces are drawn on every panel (red = liquid / foam, teal = foam /
     air) and the threshold ``T = A_max / k`` is the dashed vertical line of
-    the profile panel.
+    the profile panel. Built from the panel blocks above
+    (:func:`draw_intensity_panel`, :func:`draw_absorbance_panel`,
+    :func:`draw_profile_panel`...), which the README animation reuses.
     """
     out_png = Path(out_png)
     out_png.parent.mkdir(parents=True, exist_ok=True)
     y_min, y_max = int(y_range[0]), int(y_range[1])
-    H, W = A.shape
     if vmax_A is None:
-        sub = A[y_min:y_max]
-        vmax_A = float(np.percentile(sub[np.isfinite(sub)], 99.5)) if np.isfinite(sub).any() else 1.0
+        vmax_A = default_vmax_A(A, y_range)
     img_w_in = 1.45
     fig = Figure(figsize=(3 * img_w_in + 5.6, 7.6), dpi=dpi, facecolor="white")
     FigureCanvasAgg(fig)
@@ -292,71 +432,20 @@ def plot_measurement_figure(ref_intensity: np.ndarray, live_intensity: np.ndarra
     ax_cb = fig.add_subplot(gs[0, 3])
     ax_p = fig.add_subplot(gs[0, 5], sharey=ax_ref)
 
-    extent = (0, W, y_max, y_min)
     grey_max = float(max(np.nanmax(ref_intensity), 1.0))
-    ax_ref.imshow(ref_intensity[y_min:y_max], cmap="gray", vmin=0, vmax=grey_max, extent=extent, aspect="auto",
-                  interpolation="nearest")
-    ax_live.imshow(live_intensity[y_min:y_max], cmap="gray", vmin=0, vmax=grey_max, extent=extent, aspect="auto",
-                   interpolation="nearest")
-    im = ax_A.imshow(A[y_min:y_max], cmap="inferno", vmin=0, vmax=vmax_A, extent=extent, aspect="auto",
-                     interpolation="nearest")
-    cb = fig.colorbar(im, cax=ax_cb)
-    cb.set_label("A", color=INK_SOFT, fontsize=9)
-    cb.ax.tick_params(colors=INK_SOFT, labelsize=8)
-    for ax, name in ((ax_ref, "reference I₀ (empty cylinder)"), (ax_live, "live frame I"),
-                     (ax_A, "A(x, y) = −ln(I / I₀)")):
-        ax.set_title(name, fontsize=9.5, color=INK, pad=6)
-        ax.set_xticks([])
-        for sp in ax.spines.values():
-            sp.set_color(GRID)
-    x_lo, x_hi = band
+    draw_intensity_panel(ax_ref, ref_intensity, y_range, grey_max=grey_max, title="reference I₀ (empty cylinder)")
+    draw_intensity_panel(ax_live, live_intensity, y_range, grey_max=grey_max, title="live frame I")
+    im = draw_absorbance_panel(ax_A, A, y_range, vmax=vmax_A, title="A(x, y) = −ln(I / I₀)")
+    add_absorbance_colorbar(fig, im, ax_cb)
     for ax in (ax_live, ax_A):
-        ax.axvline(x_lo, color="#ffd21f", linewidth=0.9, linestyle="--", alpha=0.9)
-        ax.axvline(x_hi, color="#ffd21f", linewidth=0.9, linestyle="--", alpha=0.9)
+        draw_band_lines(ax, band)
+    draw_profile_panel(ax_p, A_z, y_range=y_range, y_liquid=y_liquid, y_foam_top=y_foam_top, A_max=A_max,
+                       threshold=threshold, band=band, k=k, model_fn=model_fn, vmax_A=vmax_A,
+                       title="radial profile A(z) and the foam-top threshold")
+    for ax in (ax_ref, ax_live, ax_A):
+        draw_interface_rows(ax, y_liquid, y_foam_top)
 
-    # Profile panel.
-    rows = np.arange(H)
-    ax_p.plot(A_z, rows, color=INK, linewidth=1.3,
-              label=f"A(z), mean over |x − cₓ| ≤ {(x_hi - x_lo) // 2} px (dashed band)")
-    ax_p.axvline(threshold, color=FOAM_COLOR, linestyle="--", linewidth=1.2,
-                 label=f"threshold T = A_max / {k:g} = {threshold:.2f}")
-    if y_foam_top is not None and y_liquid is not None:
-        yl = int(round(float(y_liquid)))
-        ax_p.fill_betweenx(rows[y_foam_top:yl], 0, np.nan_to_num(A_z[y_foam_top:yl]), color="#f6c7a0",
-                           alpha=0.55, linewidth=0, label="foam: ∫A dz enters the mass balance")
-    for ax in (ax_ref, ax_live, ax_A, ax_p):
-        if y_liquid is not None:
-            ax.axhline(float(y_liquid), color=LIQUID_COLOR, linewidth=1.8)
-        if y_foam_top is not None:
-            ax.axhline(float(y_foam_top), color=FOAM_COLOR, linewidth=1.8)
-    ax_p.set_xlim(min(0.0, float(np.nanmin(A_z[y_min:y_max]))) - 0.02, max(vmax_A, A_max) * 1.08)
-    ax_p.set_xlabel("effective absorbance A(z)", color=INK_SOFT, fontsize=10)
-    ax_p.grid(True, color=GRID, linewidth=0.7)
-    ax_p.set_axisbelow(True)
-    ax_p.tick_params(colors=INK_SOFT, labelsize=9)
-    ax_p.tick_params(axis="y", labelleft=False, length=0)
-    for sp in ax_p.spines.values():
-        sp.set_color(GRID)
-    ax_p.set_title("radial profile A(z) and the foam-top threshold", fontsize=9.5, color=INK, pad=6)
-    x_text = max(vmax_A, A_max) * 1.05
-    if y_liquid is not None:
-        ax_p.annotate(f"liquid / foam (gradient detector)  y = {float(y_liquid):.1f} px  ·  "
-                      f"{_fmt_ml(model_fn, y_liquid)} of liquid",
-                      (x_text, float(y_liquid)), xytext=(-4, -6), textcoords="offset points", ha="right",
-                      va="top", fontsize=8, color=LIQUID_COLOR)
-    if y_foam_top is not None:
-        ax_p.annotate(f"foam / air (first row with A < T)  y = {int(y_foam_top)} px  ·  "
-                      f"{_fmt_ml(model_fn, y_foam_top)} liquid + foam",
-                      (x_text, float(y_foam_top)), xytext=(-4, 6), textcoords="offset points", ha="right",
-                      va="bottom", fontsize=8, color=FOAM_COLOR)
-    if y_liquid is not None and np.isfinite(A_z[:int(round(float(y_liquid)))]).any():
-        y_amax = int(np.nanargmax(A_z[:int(round(float(y_liquid)))]))
-        ax_p.annotate(f"A_max = {A_max:.2f}", (A_max, y_amax), xytext=(-8, 0), textcoords="offset points",
-                      ha="right", va="center", fontsize=8, color=INK_SOFT,
-                      arrowprops={"arrowstyle": "-", "color": INK_SOFT, "lw": 0.6})
-    ax_p.legend(loc="upper right", fontsize=7.5, framealpha=0.9, labelcolor=INK)
-
-    _volume_axis(ax_ref, model_fn, y_min, y_max, color=INK_SOFT)
+    volume_axis(ax_ref, model_fn, y_min, y_max, color=INK_SOFT)
     for ax in (ax_live, ax_A):
         ax.tick_params(axis="y", labelleft=False, length=0)
     if title:
@@ -366,6 +455,9 @@ def plot_measurement_figure(ref_intensity: np.ndarray, live_intensity: np.ndarra
 
 
 __all__ = [
-    "LIQUID_COLOR", "FOAM_COLOR", "volume_ticks", "time_edges", "plot_heatmap_A", "plot_heatmap_c",
+    "LIQUID_COLOR", "FOAM_COLOR", "BAND_COLOR", "FOAM_FILL_COLOR", "INK", "INK_SOFT", "GRID",
+    "volume_ticks", "volume_axis", "time_edges", "plot_heatmap_A", "plot_heatmap_c",
+    "default_vmax_A", "style_image_axes", "draw_intensity_panel", "draw_absorbance_panel",
+    "add_absorbance_colorbar", "draw_band_lines", "draw_interface_rows", "draw_profile_panel",
     "plot_measurement_figure",
 ]

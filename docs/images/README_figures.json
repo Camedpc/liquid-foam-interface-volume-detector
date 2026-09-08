@@ -360,12 +360,12 @@
     {
       "file": "detection_absorbance_timeline.gif",
       "size_px": [
-        772,
-        710
+        958,
+        737
       ],
-      "bytes": 2064072,
+      "bytes": 2243973,
       "frames": 20,
-      "description": "Detection | A(x, y) | A(z) of the green-screen run, 20 frames from the pour to after the foam collapse, vertically registered (same crop rows, same scale): specimen panel with the readout (t, three volumes), effective absorbance map against the empty-cylinder reference (inferno, fixed scale 0..1.75), radial profile A(z) with the threshold A_max / k, the liquid/foam row (red, gradient detector) and the foam top by threshold (teal), the shaded foam integral; 650 ms per frame, the last one held 4x longer.",
+      "description": "Detection | A(x, y) | A(z) of the green-screen run, 20 frames from the pour to after the foam collapse, vertically registered (same rows, same scale) on a white figure with a title strip (frame, t after the start of the pour) and a caption under each panel: specimen panel with the readout (t, three volumes), effective absorbance map against the empty-cylinder reference (inferno, fixed scale 0..1.75, mL axis), radial profile A(z) with the threshold A_max / k, the liquid/foam row (red, gradient detector) and the foam top by threshold (teal), the shaded foam integral, drawn by the panel blocks of absorbance_measurement.png; 650 ms per frame, the last one held 4x longer.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
@@ -688,7 +688,11 @@
           0.0,
           1.75
         ],
-        "layout": "specimen panel | A(x, y) map | A(z) profile + colour bar, one row axis (rows 0..1766 of the frame at 0.3511 px/px), header 90 px",
+        "rows": [
+          0,
+          1579
+        ],
+        "layout": "white matplotlib figure: title strip | specimen panel (light readouts) | mL axis | A(x, y) map | colour bar | A(z) profile, captions under the panels; the three panels share the row limits [0, 1579] at 0.3511 px/px",
         "n_dead_pixels": 263378,
         "frame_ms": 650,
         "last_frame_ms": 2600,

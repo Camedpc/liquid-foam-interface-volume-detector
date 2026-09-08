@@ -4,7 +4,7 @@
 
 <p align="center"><img src="docs/images/detection_absorbance_timeline.gif" width="100%"></p>
 
-*The green-screen run, 20 frames from the pour to after the foam collapse (1 frame = 60 source frames, times from the start of the pour). Left: the detector's specimen panel — liquid/foam interface (red), foam/air interface (teal), foam and liquid washes, the readout giving t and the three volumes. Middle: the effective absorbance map $A(x, y) = -\ln(I/I_0)$ of the same rows ($I_0$ = the empty cylinder, mean of frames 5–14; fixed colour scale 0–1.75). Right: the radial profile $A(z)$ over $|x - c_x| \le 64$ px, the threshold $T = A_\text{max}/k$ with $k = 5$ (dashed) that sets the absorbance foam top (teal on the map and the profile; on the specimen the teal line is the gradient detector's) and the shaded $\int A\,dz$ of the mass balance. The three panels share the row axis: a pixel row is the same physical level in all of them.*
+*Twenty frames of the green-screen run, from the pour to after the foam collapse (times from the start of the pour): the detected frame with its readout, the effective absorbance map $A(x, y)$ of the same rows against the empty cylinder, and the radial profile $A(z)$ with the threshold $A_\text{max}/5$ that sets the foam top.*
 
 <p align="center"><img src="docs/images/hero.png" width="100%"></p>
 

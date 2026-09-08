@@ -169,6 +169,14 @@ LABEL_BACKING_RADIUS: int = 3
 LABEL_BAR_W: int = 2
 LABEL_PAD: tuple[int, int] = (7, 3)
 LABEL_TEXT_SHADOW_BGR: tuple[int, int, int] | None = None
+
+# Light variant of the readout boxes and braces, for panels composed on a
+# white figure (the README animation): dark text on a pale box.
+LABEL_LIGHT_BGR: tuple[int, int, int] = (28, 28, 34)          # numbers
+LABEL_LIGHT_ZONE_BGR: tuple[int, int, int] = (92, 92, 104)    # zone word
+LABEL_LIGHT_BACKING_BGR: tuple[int, int, int] = (236, 236, 240)
+LABEL_LIGHT_BACKING_ALPHA: float = 0.92
+BRACE_LIGHT_BGR: tuple[int, int, int] = (118, 118, 128)
 # Legacy names kept for callers of the previous "outlined Hershey" style.
 MEAN_LINE_OUTLINE_W: int = 0
 LABEL_OUTLINE_BGR: tuple[int, int, int] = (0, 0, 0)
@@ -192,5 +200,7 @@ __all__ = [
     "LABEL_LETTER_SPACING", "LABEL_BGR", "LABEL_ZONE_BGR", "LABEL_BACKING_BGR",
     "LABEL_BACKING_ALPHA", "LABEL_BACKING_RADIUS", "LABEL_BAR_W", "LABEL_PAD",
     "LABEL_TEXT_SHADOW_BGR", "MEAN_LINE_OUTLINE_W", "LABEL_OUTLINE_BGR",
+    "LABEL_LIGHT_BGR", "LABEL_LIGHT_ZONE_BGR", "LABEL_LIGHT_BACKING_BGR", "LABEL_LIGHT_BACKING_ALPHA",
+    "BRACE_LIGHT_BGR",
     "LABEL_FONT_SCALE", "LABEL_FONT_THICK",
 ]
