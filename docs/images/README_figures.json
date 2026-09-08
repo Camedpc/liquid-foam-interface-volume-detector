@@ -2,6 +2,103 @@
   "note": "Every image comes from a real run; sources give the run, the frame and the parameters.",
   "figures": [
     {
+      "file": "absorbance_measurement.png",
+      "size_px": [
+        1492,
+        1140
+      ],
+      "bytes": 562601,
+      "description": "Reference frame of the empty cylinder, live frame, absorbance map A(x, y) and the radial profile A(z) with the threshold A_max / k and both interfaces.",
+      "source": {
+        "run": "absorbance",
+        "video": "subsampled_step60.mp4",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
+        "frame": 231,
+        "t_sec": 462.46,
+        "params": {
+          "polarity": "lower_brighter",
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
+          "blur_sigma": 5.7,
+          "blur_h": 38,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
+          "channel": "gray"
+        },
+        "absorbance_params": {
+          "channel": "G",
+          "light_blur": 1.0,
+          "r_dens": 64,
+          "foam_k": 5.0,
+          "dead_thresh": 178.0,
+          "dead_dilate": 2,
+          "px_per_cm": 68.11560350808892,
+          "section_cm2": 35.25652355491145,
+          "y_top": 4,
+          "cx": 171
+        },
+        "ref_frames": [
+          5,
+          15
+        ],
+        "t0_frame": 1347.0,
+        "t_since_pour_s": 417.52,
+        "V_inf_ml": 256.95737363056975,
+        "frames": "23..442 step 1",
+        "k_sweep": {
+          "2": {
+            "y_foam_top_px": 691.0,
+            "V_foam_mL": 265.6699017015073
+          },
+          "3": {
+            "y_foam_top_px": 651.0,
+            "V_foam_mL": 286.61231007847067
+          },
+          "4": {
+            "y_foam_top_px": 639.0,
+            "V_foam_mL": 292.89503259155964
+          },
+          "5": {
+            "y_foam_top_px": 631.0,
+            "V_foam_mL": 297.08351426695236
+          },
+          "6": {
+            "y_foam_top_px": 622.0,
+            "V_foam_mL": 301.79555615176906
+          },
+          "7": {
+            "y_foam_top_px": 620.0,
+            "V_foam_mL": 302.84267657061724
+          },
+          "8": {
+            "y_foam_top_px": 617.0,
+            "V_foam_mL": 304.4133571988895
+          },
+          "9": {
+            "y_foam_top_px": 614.0,
+            "V_foam_mL": 305.9840378271618
+          },
+          "10": {
+            "y_foam_top_px": 600.0,
+            "V_foam_mL": 313.31388075909894
+          }
+        },
+        "n_dead_pixels": 263378,
+        "result": {
+          "y_liquid": 1199.9242424242425,
+          "y_foam_top": 631,
+          "A_max": 1.6360803842544556,
+          "threshold": 0.3272160768508911,
+          "integral_cm": 9.647299980595266,
+          "gamma": NaN
+        }
+      }
+    },
+    {
       "file": "batch_figure_black.png",
       "size_px": [
         1600,
@@ -281,6 +378,184 @@
           "channel": "gray"
         },
         "batch": "frames 0..1120 step 1 and step 10, time_scale 60"
+      }
+    },
+    {
+      "file": "heatmap_A.png",
+      "size_px": [
+        1600,
+        837
+      ],
+      "bytes": 475300,
+      "description": "A(t, V) of the back-lit run: radial mean of the absorbance per row, rows converted to mL through the calibration; liquid/foam interface (red), foam top for k = 2..10 with the k used in teal, final liquid volume dotted.",
+      "source": {
+        "run": "absorbance",
+        "video": "subsampled_step60.mp4",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
+        "frame": 231,
+        "t_sec": 462.46,
+        "params": {
+          "polarity": "lower_brighter",
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
+          "blur_sigma": 5.7,
+          "blur_h": 38,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
+          "channel": "gray"
+        },
+        "absorbance_params": {
+          "channel": "G",
+          "light_blur": 1.0,
+          "r_dens": 64,
+          "foam_k": 5.0,
+          "dead_thresh": 178.0,
+          "dead_dilate": 2,
+          "px_per_cm": 68.11560350808892,
+          "section_cm2": 35.25652355491145,
+          "y_top": 4,
+          "cx": 171
+        },
+        "ref_frames": [
+          5,
+          15
+        ],
+        "t0_frame": 1347.0,
+        "t_since_pour_s": 417.52,
+        "V_inf_ml": 256.95737363056975,
+        "frames": "23..442 step 1",
+        "k_sweep": {
+          "2": {
+            "y_foam_top_px": 691.0,
+            "V_foam_mL": 265.6699017015073
+          },
+          "3": {
+            "y_foam_top_px": 651.0,
+            "V_foam_mL": 286.61231007847067
+          },
+          "4": {
+            "y_foam_top_px": 639.0,
+            "V_foam_mL": 292.89503259155964
+          },
+          "5": {
+            "y_foam_top_px": 631.0,
+            "V_foam_mL": 297.08351426695236
+          },
+          "6": {
+            "y_foam_top_px": 622.0,
+            "V_foam_mL": 301.79555615176906
+          },
+          "7": {
+            "y_foam_top_px": 620.0,
+            "V_foam_mL": 302.84267657061724
+          },
+          "8": {
+            "y_foam_top_px": 617.0,
+            "V_foam_mL": 304.4133571988895
+          },
+          "9": {
+            "y_foam_top_px": 614.0,
+            "V_foam_mL": 305.9840378271618
+          },
+          "10": {
+            "y_foam_top_px": 600.0,
+            "V_foam_mL": 313.31388075909894
+          }
+        },
+        "n_dead_pixels": 263378
+      }
+    },
+    {
+      "file": "heatmap_c.png",
+      "size_px": [
+        1600,
+        837
+      ],
+      "bytes": 141106,
+      "description": "c(t, V) = gamma A: liquid volume fraction inside the foam from the mass balance (V_inf - V_beer = S integral c dz), inverted grey, white outside the foam.",
+      "source": {
+        "run": "absorbance",
+        "video": "subsampled_step60.mp4",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
+        "frame": 231,
+        "t_sec": 462.46,
+        "params": {
+          "polarity": "lower_brighter",
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
+          "blur_sigma": 5.7,
+          "blur_h": 38,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
+          "channel": "gray"
+        },
+        "absorbance_params": {
+          "channel": "G",
+          "light_blur": 1.0,
+          "r_dens": 64,
+          "foam_k": 5.0,
+          "dead_thresh": 178.0,
+          "dead_dilate": 2,
+          "px_per_cm": 68.11560350808892,
+          "section_cm2": 35.25652355491145,
+          "y_top": 4,
+          "cx": 171
+        },
+        "ref_frames": [
+          5,
+          15
+        ],
+        "t0_frame": 1347.0,
+        "t_since_pour_s": 417.52,
+        "V_inf_ml": 256.95737363056975,
+        "frames": "23..442 step 1",
+        "k_sweep": {
+          "2": {
+            "y_foam_top_px": 691.0,
+            "V_foam_mL": 265.6699017015073
+          },
+          "3": {
+            "y_foam_top_px": 651.0,
+            "V_foam_mL": 286.61231007847067
+          },
+          "4": {
+            "y_foam_top_px": 639.0,
+            "V_foam_mL": 292.89503259155964
+          },
+          "5": {
+            "y_foam_top_px": 631.0,
+            "V_foam_mL": 297.08351426695236
+          },
+          "6": {
+            "y_foam_top_px": 622.0,
+            "V_foam_mL": 301.79555615176906
+          },
+          "7": {
+            "y_foam_top_px": 620.0,
+            "V_foam_mL": 302.84267657061724
+          },
+          "8": {
+            "y_foam_top_px": 617.0,
+            "V_foam_mL": 304.4133571988895
+          },
+          "9": {
+            "y_foam_top_px": 614.0,
+            "V_foam_mL": 305.9840378271618
+          },
+          "10": {
+            "y_foam_top_px": 600.0,
+            "V_foam_mL": 313.31388075909894
+          }
+        },
+        "n_dead_pixels": 263378
       }
     },
     {
