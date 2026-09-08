@@ -29,6 +29,7 @@ Legacy file → new home:
 | `interface_uncertainty_video.py` (steps 1-4 of its docstring), `interface_uncertainty_video_compare.compute_uncertainty` | empirical / method uncertainty | `cylvision/uncertainty/empirical.py` |
 | `generate_uncertainty_legend.py`, `plot_run09_uncertainty.py` | budget figure ideas | `cylvision/uncertainty/budget.py` |
 | `back_calibration.py`, `rectify_cylinder.py` | optional back-graduation clicks + focal-free model | `cylvision/calibration/back_clicks.py`, `cylvision/uncertainty/curvature.py` (focal-free branch) |
+| `rectify_cylinder.compute_rectification_maps`, `interface_uncertainty_video_compare.py` (per-frame original vs rectified loop, max/√3 definition, live u(t) plot), `curvature_uncertainty.detect_cylinder_edges` | cylinder rectification by inverse projection + before/after comparison of the method term | `cylvision/rectify.py`, `scripts/rectify_compare.py` |
 
 Everything Beer-Lambert (absorbance, concentration, I0, dead pixels, gamma,
 V_inf, collapse detection, heatmaps) is OUT OF SCOPE. Do not port it.
@@ -43,6 +44,8 @@ liquid-foam-interface-volume-detector/
 ├── cylvision/
 │   ├── __init__.py
 │   ├── io.py                      unicode-safe image IO, video source
+│   ├── rectify.py                 inverse-projection maps (cv2.remap), rectified crop, wall edges, original-vs-rectified
+│   │                              comparison of the method term, residual curvature, figures
 │   ├── magnifier.py               zoom loupe for pixel-accurate clicks
 │   ├── calibration/
 │   │   ├── models.py              PCHIP / poly2 / Möbius fits, best_model, build_model_fn
@@ -72,6 +75,7 @@ liquid-foam-interface-volume-detector/
 │   ├── tune.py                    open the live tuner on a video, save params.json
 │   ├── run_batch.py               calibration + params → levels.csv + figure
 │   ├── uncertainty_report.py      run dir → curvature figure + budget table/figure
+│   ├── rectify_compare.py         window of a video → u_method(t) original vs rectified (CSV, summary, figures)
 │   └── make_readme_figures.py     regenerate every docs/images/*.png from real runs
 ├── docs/
 │   ├── images/                    README screenshots (real data only)
