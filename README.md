@@ -2,13 +2,13 @@
 
 **Point a camera at a graduated cylinder; get the liquid level, the foam level and their volumes, frame by frame, with an uncertainty budget.**
 
+<p align="center"><img src="docs/images/detection_absorbance_timeline.gif" width="100%"></p>
+
+*The green-screen run, 20 frames from the pour to after the foam collapse (1 frame = 60 source frames, times from the start of the pour). Left: the detector's specimen panel — liquid/foam interface (red), foam/air interface (teal), foam and liquid washes, the readout giving t and the three volumes. Middle: the effective absorbance map $A(x, y) = -\ln(I/I_0)$ of the same rows ($I_0$ = the empty cylinder, mean of frames 5–14; fixed colour scale 0–1.75). Right: the radial profile $A(z)$ over $|x - c_x| \le 64$ px, the threshold $T = A_\text{max}/k$ with $k = 5$ (dashed) that sets the absorbance foam top (teal on the map and the profile; on the specimen the teal line is the gradient detector's) and the shaded $\int A\,dz$ of the mass balance. The three panels share the row axis: a pixel row is the same physical level in all of them.*
+
 <p align="center"><img src="docs/images/hero.png" width="100%"></p>
 
-*Raw frame → detected, on the two lighting setups. The tool finds the **liquid/foam interface** (red line) and the **foam/air interface** (teal line), shades the foam band between them (peach) and the liquid below (blue), and converts both rows to volumes through the printed scale — the readouts next to the braces. Left pair: back-lit green screen, frame 108 (t = 172 s after the start of the pour) — foam 431 mL, liquid 222 mL, total 653 mL. Right pair: front-lit black background, frame 2472 (t = 124 s) — foam 581 mL, liquid 149 mL, total 730 mL.*
-
-<p align="center"><img src="docs/images/detection_timeline.gif" width="34%"></p>
-
-*The green-screen run through the detector, from the pour to after the foam collapse (15 frames, 1 frame = 60 source frames, times from the start of the pour): the readout in the header gives t and the three volumes of every frame; the static strip below shows the same frames for viewers whose browser does not play GIFs.*
+*Raw frame → detected, on both lighting setups: liquid/foam interface (red), foam/air interface (teal), foam band (peach) and liquid (blue) shaded, volumes read through the printed scale. Left: back-lit green screen, frame 108, t = 172 s — foam 431 mL, liquid 222 mL, total 653 mL; right: front-lit black background, frame 2472, t = 124 s — foam 581 mL, liquid 149 mL, total 730 mL.*
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -19,13 +19,13 @@
 
 <p align="center"><img src="docs/images/timeline_green.png" width="100%"></p>
 
-*Seven frames of the green-screen run (1 frame = 60 source frames; t = 0 at the start of the pour, sub frame 22). While the beer is still being poured (frame 30, t = 16 s) only the foam top is visible; at the foam peak (frame 39, t = 34 s) the band is 658 mL over 83 mL of liquid. It then shrinks to 431 mL (t = 172 s), 305 mL (356 s), 259 mL (557 s) and 200 mL (11.9 min) while the liquid drains out of it and settles at 257 mL; between frames 380 and 400 (12.6 min) an 83 mL slab of foam collapses and the band drops to 117 mL. Every panel is the specimen view of the tuner: the two flat mean lines with their triangles at the cylinder walls, the shaded foam and liquid zones, the braces and the readouts.*
+*Seven frames of a run.*
 
 Every overlay in this README uses the same code: **red** = lower interface (liquid/foam), **teal** = upper interface (foam/air), **peach wash** = foam, **blue wash** = liquid. The lines are drawn at the output resolution (3 px flat, a 1 px shadow underneath) so they stay crisp whatever the size of the figure; small dots along each line are the per-column detections that the mean line averages. The readouts use the TrueType fonts shipped with matplotlib (DejaVu Sans for the zone words, DejaVu Sans Mono for the numbers).
 
 ## Background
 
-This project was built for the **internal selection of the École Polytechnique team for the IPT** (International Physicists' Tournament). Each candidate had to present, in six minutes, an experimental study of one of the tournament problems, with a real uncertainty analysis. The problem chosen here was *Beer Foam*: how the volumes of beer and foam evolve in a 1000 mL graduated cylinder during and after a pour. Reading those two levels by eye on hours of video was not an option, so this tool reads the printed scale and the two interfaces automatically, frame by frame, and quantifies how much each reading can be trusted.
+This project was built for the **internal selection of the École Polytechnique team for the IPT** (International Physicists' Tournament). Each candidate had to present, in six minutes, an experimental study of one of the tournament problems, with a real uncertainty analysis. The problem chosen here was the tournament's problem *Beer Foam* — Investigate the dynamics of beer foam (or the foam of any equivalent non-alcoholic drink) after pouring. Study and characterize the relevant parameters of the foam evolution. Maximize the lifetime of the foam per unit volume of beer.
 
 Nothing in it is specific to beer: any vertical graduated cylinder filmed by a fixed camera, with one or two horizontal interfaces (liquid/foam, liquid/air, two immiscible liquids), can be read the same way.
 
@@ -553,6 +553,8 @@ python scripts/make_readme_figures.py \
     --black-run runs/black --black-video black.mp4 \
     --out docs/images --panel-screenshot
 # --only hero,timeline,param_T_lower   regenerate a subset (timeline = strip + detection_timeline.gif)
+# --only timeline_absorbance           detection | A(x, y) | A(z) animation (green run only; the black
+#                                      run may be omitted) + the detection-only GIF, same frames
 # --skip-batch                         reuse the cached batch CSVs from --work-dir
 # --reuse-batch black                  reuse only the black cache (the 5 GB seek), redo the green batch
 # --t0-frame 22                        caption times count from this green frame (start of the pour)

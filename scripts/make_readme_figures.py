@@ -24,6 +24,11 @@ frames show the empty cylinder (``--absorbance-run``, ``--absorbance-video``,
 ``--absorbance-ref-frames a:b`` for the reference frames). The green and
 black runs are only required for the other groups.
 
+The ``timeline_absorbance`` group (``detection_absorbance_timeline.gif``:
+detection | A(x, y) | A(z), one row axis, plus the detection-only
+``detection_timeline.gif`` from the same frames) needs the green run only:
+its first frames show the empty cylinder, which is the absorbance reference.
+
 Example::
 
     python scripts/make_readme_figures.py --green-run runs/green --green-video green.mp4 \\
@@ -53,6 +58,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from cylvision.absorbance import (  # noqa: E402
     AbsorbanceParams,
+    analyse_crop,
     finalize_mass_balance,
     foam_tops_for_ks,
     foam_volume_vs_k,
@@ -87,8 +93,10 @@ from cylvision.detection import (  # noqa: E402
 from cylvision.detection.interfaces import band_columns  # noqa: E402
 from cylvision.detection.panels import (  # noqa: E402
     SEP,
+    draw_mean_line,
     draw_readout,
     make_specimen_panel,
+    mean_line_width,
     readout_rows,
     readout_size,
     volume_labels,
@@ -520,10 +528,20 @@ def run_batches(g: RunCtx, b: RunCtx, work_dir: Path, skip: bool,
 HERO_HEIGHT = 820          # height (px) of the four hero panels before the final width limit
 TIMELINE_HEIGHT = 520      # height (px) of every timeline panel (7 panels fit MAX_WIDTH without downscaling)
 TIMELINE_GREEN = (30, 39, 108, 200, 300, 380, 400)   # frames of the green run (1 frame = 60 source frames)
-GIF_FRAMES = (22, 30, 39, 50, 60, 80, 108, 150, 200, 250, 300, 350, 380, 400, 440)
-GIF_HEIGHT = 620           # height (px) of every GIF frame
-GIF_FRAME_MS = 550         # display time of a GIF frame; the last one stays 4x longer
-GIF_MAX_BYTES = 5_000_000
+# 20 frames of the green run: the key moments (22 pouring, 39 foam peak, 108 the
+# reference frame, 380 just before the collapse, 400 after, 440 end) and an even fill.
+GIF_FRAMES = (22, 30, 39, 50, 60, 80, 108, 130, 150, 175, 200, 225, 250, 275, 300, 330, 360, 380, 400, 440)
+GIF_HEIGHT = 620           # height (px) of every GIF frame (the specimen, the A map and the profile alike)
+GIF_FRAME_MS = 650         # display time of a GIF frame; the last one stays 4x longer (20 frames -> 15 s)
+GIF_MAX_BYTES = 6_000_000
+GIF_GAP = 8                # gap (px) between the three columns of the combined GIF
+GIF_PROFILE_W = 330        # width (px) of the A(z) profile column (matplotlib), colour bar included
+GIF_ABS_VMAX = 1.75        # fixed scale of the A(x, y) colours and of the A(z) axis, every frame alike
+# Absorbance settings of the combined GIF (the README heat maps use the same ones): the
+# reference I0 is the mean of sub frames 5..14 (empty cylinder), band |x - cx| <= r_dens,
+# foam top at the first row above the liquid with A < A_max / k.
+GIF_ABS = {"ref_frames": (5, 15), "r_dens": 64, "k": 5.0, "dead_thresh": 178.0, "dead_dilate": 2,
+           "channel": "G", "light_blur": 1.0}
 
 
 def cylinder_window(ctx: RunCtx, frame_w: int, *, margin_left: int, margin_right: int) -> tuple[int, int]:
@@ -633,29 +651,91 @@ def fig_timeline(g: RunCtx, b: RunCtx, m: Manifest, **_: Any) -> None:
     fig_gif(g, m)
 
 
-def gif_frame(ctx: RunCtx, idx: int) -> tuple[np.ndarray, InterfaceResult]:
-    """One GIF frame: a header with the readout box (t + the three volumes) over the specimen panel."""
-    det, res = detected_panel(ctx, idx, height=GIF_HEIGHT, margin_left=54, margin_right=10, label_scale=0.85)
+GIF_READOUT_SCALE = 0.85
+
+
+def gif_header_height() -> int:
+    """Height (px) of the GIF headers (the readout box of four rows plus a margin)."""
+    rows = [("time", "0 s", None)] * 4
+    return readout_size(rows, scale=GIF_READOUT_SCALE)[1] + 12
+
+
+def gif_header(ctx: RunCtx, idx: int, res: InterfaceResult, width: int) -> np.ndarray:
+    """Header of a detection GIF frame: frame / run / step at the left, the readout box at the right."""
     t = ctx.t_sec(idx)
     t_txt = f"{t:.0f} s" if abs(t) < 600 else f"{t / 60:.1f} min"
     rows = [("time", t_txt, None)]
     vol = readout_rows(res, ctx.model_fn)
     for key in ("total", "foam", "liquid"):
         rows.append(vol.get(key, (key, "--", None)))
-    w_box = readout_size([("liquid", "8888 mL", None)], scale=0.85)[0]
-    box_h = readout_size(rows, scale=0.85)[1]
-    header = np.empty((box_h + 12, det.shape[1], 3), dtype=np.uint8)
+    w_box = readout_size([("liquid", "8888 mL", None)], scale=GIF_READOUT_SCALE)[0]
+    header = np.empty((gif_header_height(), int(width), 3), dtype=np.uint8)
     header[:] = theme.BG_BGR
-    draw_readout(header, (header.shape[1] - 6, 6), rows, "rt", scale=0.85, min_width=w_box)
+    draw_readout(header, (header.shape[1] - 6, 6), rows, "rt", scale=GIF_READOUT_SCALE, min_width=w_box)
     uitext.draw_text(header, f"frame {idx}", (8, 8), theme.LABEL_FONT_ZONE, 12, theme.TEXT_BGR, "lt")
     uitext.draw_text(header, "green screen", (8, 26), theme.LABEL_FONT_ZONE, 11, theme.SUBTEXT_BGR, "lt")
     uitext.draw_text(header, "1 frame = 60 src", (8, 42), theme.LABEL_FONT_ZONE, 11, theme.SUBTEXT_BGR, "lt")
-    return np.concatenate([header, det], axis=0), res
+    return header
+
+
+def gif_frame(ctx: RunCtx, idx: int) -> tuple[np.ndarray, InterfaceResult]:
+    """One GIF frame: a header with the readout box (t + the three volumes) over the specimen panel."""
+    det, res = detected_panel(ctx, idx, height=GIF_HEIGHT, margin_left=54, margin_right=10,
+                              label_scale=GIF_READOUT_SCALE)
+    return np.concatenate([gif_header(ctx, idx, res, det.shape[1]), det], axis=0), res
+
+
+def gif_durations(n: int) -> list[int]:
+    """``GIF_FRAME_MS`` per frame, the last one held four times longer."""
+    d = [GIF_FRAME_MS] * int(n)
+    if d:
+        d[-1] = GIF_FRAME_MS * 4
+    return d
+
+
+def write_gif(m: Manifest, name: str, frames_bgr: Sequence[np.ndarray], description: str,
+              source: dict[str, Any], *, max_bytes: int = GIF_MAX_BYTES) -> Path:
+    """Write ``frames_bgr`` (padded to one size) as a looping GIF under the size limit; register it."""
+    import imageio.v3 as iio
+
+    w = max(f.shape[1] for f in frames_bgr)
+    h = max(f.shape[0] for f in frames_bgr)
+    frames = [_pad_to(f, w, h) for f in frames_bgr]
+    durations = gif_durations(len(frames))
+    out = m.out_dir / name
+    rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in frames]
+    scale = 1.0
+    while True:
+        data = iio.imwrite("<bytes>", rgb, extension=".gif", duration=durations, loop=0)
+        if len(data) <= max_bytes or scale < 0.5:
+            break
+        scale *= 0.85
+        rgb = [cv2.resize(cv2.cvtColor(f, cv2.COLOR_BGR2RGB), (int(w * scale), int(h * scale)),
+                          interpolation=cv2.INTER_AREA) for f in frames]
+    out.write_bytes(data)
+    m.entries[out.name] = {
+        "file": out.name,
+        "size_px": [int(w * scale), int(h * scale)],
+        "bytes": len(data),
+        "frames": len(frames),
+        "description": description,
+        "source": source | {"frame_ms": GIF_FRAME_MS, "last_frame_ms": durations[-1],
+                            "total_ms": int(sum(durations))},
+    }
+    print(f"  {out.name:<34s} {int(w * scale):>5d} x {int(h * scale):<5d} {len(data) / 1e6:5.2f} MB  "
+          f"({len(frames)} frames, {sum(durations) / 1000:.1f} s)")
+    return out
+
+
+def detection_gif_description(n: int) -> str:
+    return (f"Animated timeline of the green-screen run: {n} frames from the pour to after the foam "
+            "collapse, each the specimen panel (wash, flat lines, readouts) with a readout box giving t and "
+            f"the three volumes; {GIF_FRAME_MS} ms per frame, the last one held 4x longer. Times count from "
+            "the start of the pour.")
 
 
 def fig_gif(g: RunCtx, m: Manifest) -> None:
-    import imageio.v3 as iio
-
+    """``detection_timeline.gif``: the detection frames of ``GIF_FRAMES`` (same list and timing as the combined GIF)."""
     frames, meta = [], []
     for idx in GIF_FRAMES:
         if idx >= g.video.n_frames:
@@ -666,33 +746,229 @@ def fig_gif(g: RunCtx, m: Manifest) -> None:
                      "y_upper": res.y_upper})
     if not frames:
         return
-    w = max(f.shape[1] for f in frames)
-    h = max(f.shape[0] for f in frames)
-    frames = [_pad_to(f, w, h) for f in frames]
-    durations = [GIF_FRAME_MS] * len(frames)
-    durations[-1] = GIF_FRAME_MS * 4
-    out = m.out_dir / "detection_timeline.gif"
-    rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in frames]
-    scale = 1.0
-    while True:
-        data = iio.imwrite("<bytes>", rgb, extension=".gif", duration=durations, loop=0)
-        if len(data) <= GIF_MAX_BYTES or scale < 0.5:
-            break
-        scale *= 0.85
-        rgb = [cv2.resize(cv2.cvtColor(f, cv2.COLOR_BGR2RGB), (int(w * scale), int(h * scale)),
-                          interpolation=cv2.INTER_AREA) for f in frames]
-    out.write_bytes(data)
-    m.entries[out.name] = {
-        "file": out.name,
-        "size_px": [int(w * scale), int(h * scale)],
-        "bytes": len(data),
-        "description": f"Animated timeline of the green-screen run: {len(frames)} frames from the pour to "
-                       "after the foam collapse, each the specimen panel (wash, flat lines, readouts) with a "
-                       f"readout box giving t and the three volumes; {GIF_FRAME_MS} ms per frame, the last one "
-                       "held longer. Times count from the start of the pour.",
-        "source": source_of(g, None, frames=meta, frame_ms=GIF_FRAME_MS),
-    }
-    print(f"  {out.name:<34s} {int(w * scale):>5d} x {int(h * scale):<5d} {len(data) / 1e6:5.2f} MB  ({len(frames)} frames)")
+    write_gif(m, "detection_timeline.gif", frames, detection_gif_description(len(frames)),
+              source_of(g, None, frames=meta))
+
+
+# ---------------------------------------------------------------------------
+# Detection | A(x, y) | A(z) animation (green run only)
+# ---------------------------------------------------------------------------
+
+def gif_absorbance_setup(g: RunCtx) -> tuple[AbsorbanceParams, Any]:
+    """Absorbance parameters and the prepared reference I0 of the green run (``GIF_ABS``)."""
+    x_left, x_right, _, _ = g.calib.crop()
+    a, b = GIF_ABS["ref_frames"]
+    ref = reference_from_video(g.video, a, b, crop=(x_left, x_right))
+    abs_params = AbsorbanceParams(channel=str(GIF_ABS["channel"]), light_blur=float(GIF_ABS["light_blur"]),
+                                  r_dens=int(GIF_ABS["r_dens"]), foam_k=float(GIF_ABS["k"]),
+                                  dead_thresh=float(GIF_ABS["dead_thresh"]), dead_dilate=int(GIF_ABS["dead_dilate"]),
+                                  px_per_cm=px_per_cm_from_calibration(g.calib, S_CM2),
+                                  y_top=int(g.params.y_top), cx=int(g.params.cx))
+    return abs_params, prepare_reference(ref, abs_params)
+
+
+def _inferno_bgr(values01: np.ndarray) -> np.ndarray:
+    from matplotlib import colormaps
+
+    lut = (np.asarray(colormaps["inferno"](np.linspace(0.0, 1.0, 256)))[:, :3] * 255.0).round().astype(np.uint8)
+    idx = np.clip(np.nan_to_num(values01, nan=0.0) * 255.0, 0, 255).round().astype(np.uint8)
+    return np.ascontiguousarray(lut[idx][..., ::-1])
+
+
+def _dashed_vline(img: np.ndarray, x: int, color: tuple[int, int, int], *, dash: int = 6, gap: int = 5) -> None:
+    h = img.shape[0]
+    if not 0 <= x < img.shape[1]:
+        return
+    y = 0
+    while y < h:
+        img[y:min(h, y + dash), x] = color
+        y += dash + gap
+
+
+def absorbance_map_panel(A: np.ndarray, z: float, height: int, *, y_liquid: float | None,
+                         y_foam_top: int | None, band: tuple[int, int]) -> np.ndarray:
+    """``A(x, y)`` of the crop as an inferno panel at the specimen scale ``z`` (rows registered).
+
+    The map is resampled with the same target size rule as
+    :func:`make_specimen_panel` (``round(W z)`` x ``height``), so its row ``r``
+    is the row ``r`` of the specimen panel; the two interfaces are drawn with
+    the same flat lines at ``round((y + 0.5) z)``.
+    """
+    H, W = A.shape
+    tw = max(1, int(round(W * z)))
+    small = cv2.resize(np.nan_to_num(A, nan=0.0).astype(np.float32), (tw, int(height)),
+                       interpolation=cv2.INTER_AREA)
+    panel = _inferno_bgr(small / GIF_ABS_VMAX)
+
+    def sy(y: float) -> int:
+        return int(round((y + 0.5) * z))
+
+    def sx(x: float) -> int:
+        return int(round((x + 0.5) * z))
+
+    for x in band:
+        _dashed_vline(panel, sx(x), (31, 210, 255))
+    lw = mean_line_width(z)
+    if y_liquid is not None:
+        draw_mean_line(panel, 0, tw - 1, sy(float(y_liquid)), theme.LOWER_BGR, lw)
+    if y_foam_top is not None:
+        draw_mean_line(panel, 0, tw - 1, sy(float(y_foam_top)), theme.UPPER_BGR, lw)
+    return panel
+
+
+def absorbance_profile_panel(A_z: np.ndarray, H: int, *, width: int, height: int, y_liquid: float | None,
+                             y_foam_top: int | None, A_max: float, threshold: float, k: float,
+                             y_range: tuple[int, int], y_top: int, model_fn: Callable[..., Any]) -> np.ndarray:
+    """``A(z)`` profile at ``width`` x ``height`` px, rows ``0..H`` of the crop mapped on the full height.
+
+    Same elements as the right panel of ``absorbance_measurement.png``: the
+    profile (light on the dark theme), the dashed threshold ``A_max / k``,
+    the two interface rows, the shaded foam integral, the ``A_max`` value;
+    ``x`` fixed at ``0 .. GIF_ABS_VMAX``, a thin colour bar of the map at the
+    right, 100 mL gridlines through the calibration. Rendered with Agg at the
+    exact pixel size (figure inches = px / dpi), no bounding-box cropping.
+    """
+    import matplotlib as mpl
+    from cylvision.absorbance.heatmap import FOAM_COLOR, LIQUID_COLOR, volume_ticks
+
+    dpi = 100
+    ink, ink_soft, grid, bg = "#e9e9ee", "#a9a9b4", "#2c2c34", theme.BG
+    fig = Figure(figsize=(width / dpi, height / dpi), dpi=dpi, facecolor=bg)
+    canvas = FigureCanvasAgg(fig)
+    cb_x0, cb_w = width - 52, 9
+    ax = fig.add_axes([10 / width, 0.0, (cb_x0 - 24) / width, 1.0], facecolor=bg)
+    ax.set_ylim(float(H), 0.0)
+    ax.set_xlim(-0.04, GIF_ABS_VMAX)
+    rows = np.arange(H)
+    y_min, y_max = int(y_range[0]), int(y_range[1])
+    ticks_y, ticks_lab = volume_ticks(model_fn, y_min, y_max, 100.0)
+    for yy, lab in zip(ticks_y, ticks_lab):
+        ax.axhline(float(yy), color=grid, linewidth=0.6)
+        ax.text(GIF_ABS_VMAX - 0.03, float(yy), lab, ha="right", va="bottom", fontsize=6, color=ink_soft)
+    for xv in (0.5, 1.0, 1.5):
+        ax.axvline(xv, color=grid, linewidth=0.6)
+    prof = np.asarray(A_z, dtype=np.float32)
+    if y_foam_top is not None and y_liquid is not None:
+        yl = int(round(float(y_liquid)))
+        yt = int(y_foam_top)
+        if yl > yt:
+            ax.fill_betweenx(rows[yt:yl], 0, np.nan_to_num(prof[yt:yl]), color="#f6c7a0", alpha=0.5, linewidth=0)
+    ax.plot(prof[y_min:y_max], rows[y_min:y_max], color=ink, linewidth=1.1)
+    if threshold > 0:
+        ax.axvline(threshold, color=FOAM_COLOR, linestyle="--", linewidth=1.1)
+    if y_liquid is not None:
+        ax.axhline(float(y_liquid), color=LIQUID_COLOR, linewidth=1.8)
+    if y_foam_top is not None:
+        ax.axhline(float(y_foam_top), color=FOAM_COLOR, linewidth=1.8)
+    if y_liquid is not None:
+        hi = int(round(float(y_liquid)))
+        lo = max(0, int(y_top))
+        if hi > lo and np.isfinite(prof[lo:hi]).any():
+            y_amax = lo + int(np.nanargmax(prof[lo:hi]))
+            ax.annotate(f"A_max = {A_max:.2f}", (A_max, y_amax), xytext=(-6, 0), textcoords="offset points",
+                        ha="right", va="center", fontsize=7, color=ink_soft)
+    ax.text(0.97, 0.06, "A(z)", transform=ax.transAxes, ha="right", va="bottom", fontsize=7.5, color=ink_soft)
+    ax.set_xticks([0.0, 0.5, 1.0, 1.5])
+    ax.tick_params(axis="x", direction="in", pad=-11, labelsize=6.5, colors=ink_soft, length=3)
+    ax.tick_params(axis="y", left=False, labelleft=False)
+    for sp in ax.spines.values():
+        sp.set_color(grid)
+    cax = fig.add_axes([cb_x0 / width, 0.08, cb_w / width, 0.84])
+    sm = mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(0.0, GIF_ABS_VMAX), cmap="inferno")
+    cb = fig.colorbar(sm, cax=cax, ticks=[0.0, 0.5, 1.0, 1.5])
+    cb.outline.set_edgecolor(grid)
+    cb.ax.tick_params(colors=ink_soft, labelsize=6.5, length=2)
+    cax.set_title("A", fontsize=7.5, color=ink_soft, pad=3)
+    canvas.draw()
+    rgba = np.asarray(canvas.buffer_rgba())
+    bgr = cv2.cvtColor(np.ascontiguousarray(rgba[:, :, :3]), cv2.COLOR_RGB2BGR)
+    if bgr.shape[0] != height or bgr.shape[1] != width:
+        bgr = cv2.resize(bgr, (int(width), int(height)), interpolation=cv2.INTER_AREA)
+    return bgr
+
+
+def _col_header(width: int, lines: Sequence[tuple[str, tuple[int, int, int]]]) -> np.ndarray:
+    header = np.empty((gif_header_height(), int(width), 3), dtype=np.uint8)
+    header[:] = theme.BG_BGR
+    y = 8
+    for i, (text, color) in enumerate(lines):
+        uitext.draw_text(header, text, (6, y), theme.LABEL_FONT_ZONE, 12 if i == 0 else 11, color, "lt")
+        y += 18 if i == 0 else 16
+    return header
+
+
+def fig_timeline_absorbance(g: RunCtx, b: RunCtx | None, m: Manifest, **_: Any) -> None:
+    """``detection_absorbance_timeline.gif`` (detection | A(x, y) | A(z), one row axis) and ``detection_timeline.gif``.
+
+    Every frame of ``GIF_FRAMES``: the specimen panel of :func:`gif_frame`,
+    the absorbance map of the same crop rows at the same scale, and the
+    ``A(z)`` profile rendered at the same pixel height; the three columns
+    share their header height, so a pixel row is the same physical level in
+    all of them. The detection-only GIF is written from the same frames and
+    durations, so the two animations are synchronised by construction.
+    """
+    abs_params, prep = gif_absorbance_setup(g)
+    H = prep.I0.shape[0]
+    z = GIF_HEIGHT / H
+    y_range = volume_window(g.calib, H)
+    cx = abs_params.resolved_cx(prep.I0.shape[1])
+    band = band_columns(prep.I0.shape[1], cx, abs_params.r_dens)
+    hdr_h = gif_header_height()
+    gap = np.empty((hdr_h + GIF_HEIGHT, GIF_GAP, 3), dtype=np.uint8)
+    gap[:] = theme.BG_BGR
+    det_frames, combined, meta = [], [], []
+    t0 = time.perf_counter()
+    for idx in GIF_FRAMES:
+        if idx >= g.video.n_frames:
+            continue
+        det_img, res = gif_frame(g, idx)
+        crop = crop_frame(g.frame(idx), g.calib)
+        ares = analyse_crop(crop, prep, abs_params, res.y_lower)
+        amap = absorbance_map_panel(ares.A, z, GIF_HEIGHT, y_liquid=ares.y_liquid, y_foam_top=ares.y_foam_top,
+                                    band=band)
+        prof = absorbance_profile_panel(ares.A_z, H, width=GIF_PROFILE_W, height=GIF_HEIGHT,
+                                        y_liquid=ares.y_liquid, y_foam_top=ares.y_foam_top, A_max=ares.A_max,
+                                        threshold=ares.threshold, k=abs_params.foam_k, y_range=y_range,
+                                        y_top=abs_params.y_top, model_fn=g.model_fn)
+        if ares.y_foam_top is not None and ares.y_liquid is not None:
+            V_top = float(np.asarray(g.model_fn(np.array([float(ares.y_foam_top)])), dtype=float).ravel()[0])
+            V_liq = float(np.asarray(g.model_fn(np.array([float(ares.y_liquid)])), dtype=float).ravel()[0])
+            foam_txt = f"foam top {V_top:.0f} mL  ->  foam {V_top - V_liq:.0f} mL"
+            foam_col = theme.UPPER_BGR
+            thr_txt = f"A_max = {ares.A_max:.2f}   T = A_max / {abs_params.foam_k:g} = {ares.threshold:.2f}"
+        else:
+            foam_txt = "no foam top (no liquid row)"
+            foam_col = theme.SUBTEXT_BGR
+            thr_txt = "A_max, T: need the liquid row"
+        map_hdr = _col_header(amap.shape[1], [("A(x, y)", theme.TEXT_BGR), ("= -ln(I / I₀)", theme.SUBTEXT_BGR),
+                                              (f"I₀: frames {GIF_ABS['ref_frames'][0]}-"
+                                               f"{GIF_ABS['ref_frames'][1] - 1}", theme.SUBTEXT_BGR)])
+        prof_hdr = _col_header(prof.shape[1], [(f"A(z), mean over |x - cx| <= {abs_params.r_dens} px",
+                                                theme.TEXT_BGR), (thr_txt, theme.SUBTEXT_BGR),
+                                               (foam_txt, foam_col)])
+        frame = np.concatenate([det_img, gap, np.concatenate([map_hdr, amap], axis=0), gap,
+                                np.concatenate([prof_hdr, prof], axis=0)], axis=1)
+        det_frames.append(det_img)
+        combined.append(frame)
+        meta.append({"frame": idx, "t_sec": round(g.t_sec(idx), 2), "y_lower": res.y_lower, "y_upper": res.y_upper,
+                     "absorbance": ares.to_dict()})
+    if not combined:
+        return
+    print(f"  {len(combined)} frames analysed in {time.perf_counter() - t0:.0f} s")
+    src = source_of(g, None, frames=meta, absorbance_params=abs_params.to_dict(),
+                    ref_frames=list(GIF_ABS["ref_frames"]), A_scale=[0.0, GIF_ABS_VMAX],
+                    layout="specimen panel | A(x, y) map | A(z) profile + colour bar, one row axis "
+                           f"(rows 0..{H} of the frame at {z:.4f} px/px), header {hdr_h} px",
+                    n_dead_pixels=int(prep.n_dead))
+    write_gif(m, "detection_absorbance_timeline.gif", combined,
+              f"Detection | A(x, y) | A(z) of the green-screen run, {len(combined)} frames from the pour to after "
+              "the foam collapse, vertically registered (same crop rows, same scale): specimen panel with the "
+              "readout (t, three volumes), effective absorbance map against the empty-cylinder reference "
+              f"(inferno, fixed scale 0..{GIF_ABS_VMAX}), radial profile A(z) with the threshold A_max / k, the "
+              "liquid/foam row (red, gradient detector) and the foam top by threshold (teal), the shaded foam "
+              f"integral; {GIF_FRAME_MS} ms per frame, the last one held 4x longer.", src)
+    write_gif(m, "detection_timeline.gif", det_frames, detection_gif_description(len(det_frames)),
+              source_of(g, None, frames=[{k: v for k, v in d.items() if k != "absorbance"} for d in meta]))
 
 
 def _pad_to(img: np.ndarray, w: int, h: int) -> np.ndarray:
@@ -1246,8 +1522,10 @@ FIGURES: dict[str, tuple[Callable[..., None], tuple[str, ...]]] = {
     "uncertainty": (fig_uncertainty, ("uncertainty_schematic", "uncertainty_curvature", "uncertainty_budget")),
     "uncertainty_method": (fig_uncertainty_method, ("uncertainty_method",)),
     "absorbance": (fig_absorbance, ("heatmap_A", "heatmap_c", "absorbance_measurement")),
+    "timeline_absorbance": (fig_timeline_absorbance, ("detection_absorbance_timeline",)),
     "rectify": (fig_rectify, ("rectify_uncertainty", "rectify_graduations")),
 }
+GREEN_ONLY_GROUPS = ("timeline_absorbance",)     # need the green run, the black run may be omitted
 
 
 # ---------------------------------------------------------------------------
@@ -1344,9 +1622,13 @@ def main(argv: list[str] | None = None) -> int:
     manifest = Manifest(out_dir)
 
     needs_runs = [x for x in groups if x not in ("absorbance", "rectify")]
-    if needs_runs and not all((args.green_run, args.green_video, args.black_run, args.black_video)):
-        sys.exit("--green-run/--green-video and --black-run/--black-video are required for the groups "
-                 f"{needs_runs} (only the absorbance and rectify groups work without them)")
+    needs_black = [x for x in needs_runs if x not in GREEN_ONLY_GROUPS]
+    if needs_runs and not all((args.green_run, args.green_video)):
+        sys.exit(f"--green-run/--green-video are required for the groups {needs_runs} "
+                 "(only the absorbance and rectify groups work without them)")
+    if needs_black and not all((args.black_run, args.black_video)):
+        sys.exit(f"--black-run/--black-video are required for the groups {needs_black} "
+                 f"(the groups {list(GREEN_ONLY_GROUPS)} work with the green run alone)")
     g = b = None
     absorbance: dict[str, Any] | None = None
     rectify: dict[str, Any] | None = None
@@ -1357,7 +1639,8 @@ def main(argv: list[str] | None = None) -> int:
     if needs_runs:
         g = load_ctx("green", args.green_run, args.green_video, args.green_params, args.frame_scale_green,
                      t0_frame=args.t0_frame)
-        b = load_ctx("black", args.black_run, args.black_video, args.black_params, 1.0)
+        if needs_black:
+            b = load_ctx("black", args.black_run, args.black_video, args.black_params, 1.0)
     if "absorbance" in groups and args.absorbance_run and args.absorbance_video:
         ctx_a = load_ctx("absorbance", args.absorbance_run, args.absorbance_video, args.absorbance_params,
                          args.absorbance_frame_scale)

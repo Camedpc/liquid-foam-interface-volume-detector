@@ -358,13 +358,352 @@
       }
     },
     {
+      "file": "detection_absorbance_timeline.gif",
+      "size_px": [
+        772,
+        710
+      ],
+      "bytes": 2064072,
+      "frames": 20,
+      "description": "Detection | A(x, y) | A(z) of the green-screen run, 20 frames from the pour to after the foam collapse, vertically registered (same crop rows, same scale): specimen panel with the readout (t, three volumes), effective absorbance map against the empty-cylinder reference (inferno, fixed scale 0..1.75), radial profile A(z) with the threshold A_max / k, the liquid/foam row (red, gradient detector) and the foam top by threshold (teal), the shaded foam integral; 650 ms per frame, the last one held 4x longer.",
+      "source": {
+        "run": "green",
+        "video": "subsampled_step60.mp4",
+        "run_dir": "09 2026-05-01 1000mL vertical test BL evolution",
+        "t0_frame": 22,
+        "time_origin": "t = 0 at frame 22 (start of the pour)",
+        "params": {
+          "polarity": "lower_brighter",
+          "T_lower": 40.0,
+          "T_upper": 8.0,
+          "r_lower": 171,
+          "r_upper": 171,
+          "blur_sigma": 5.7,
+          "blur_h": 38,
+          "min_h_upper": 15,
+          "y_top": 4,
+          "y_bottom": 1534,
+          "cx": 171,
+          "channel": "gray"
+        },
+        "frames": [
+          {
+            "frame": 22,
+            "t_sec": 0.0,
+            "y_lower": null,
+            "y_upper": null,
+            "absorbance": {
+              "y_liquid": null,
+              "y_foam_top": null,
+              "A_max": 0.0,
+              "threshold": 0.0,
+              "integral_cm": 0.0,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 30,
+            "t_sec": 16.02,
+            "y_lower": null,
+            "y_upper": 184.76470588235293,
+            "absorbance": {
+              "y_liquid": null,
+              "y_foam_top": null,
+              "A_max": 0.0,
+              "threshold": 0.0,
+              "integral_cm": 0.0,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 39,
+            "t_sec": 34.03,
+            "y_lower": 1532.4272727272728,
+            "y_upper": 263.8636363636364,
+            "absorbance": {
+              "y_liquid": 1532.4272727272728,
+              "y_foam_top": 289,
+              "A_max": 1.7832740545272827,
+              "threshold": 0.35665481090545653,
+              "integral_cm": 27.906505931388015,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 50,
+            "t_sec": 56.06,
+            "y_lower": 1436.2716535433071,
+            "y_upper": 329.73949579831935,
+            "absorbance": {
+              "y_liquid": 1436.2716535433071,
+              "y_foam_top": 317,
+              "A_max": 1.783608078956604,
+              "threshold": 0.3567216157913208,
+              "integral_cm": 25.418119643287987,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 60,
+            "t_sec": 76.08,
+            "y_lower": 1377.8416988416989,
+            "y_upper": 338.8550724637681,
+            "absorbance": {
+              "y_liquid": 1377.8416988416989,
+              "y_foam_top": 334,
+              "A_max": 1.7456979751586914,
+              "threshold": 0.3491395950317383,
+              "integral_cm": 23.357233474616333,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 80,
+            "t_sec": 116.12,
+            "y_lower": 1307.5057034220533,
+            "y_upper": 368.9166666666667,
+            "absorbance": {
+              "y_liquid": 1307.5057034220533,
+              "y_foam_top": 373,
+              "A_max": 1.6770888566970825,
+              "threshold": 0.3354177713394165,
+              "integral_cm": 20.02844759273145,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 108,
+            "t_sec": 172.17,
+            "y_lower": 1258.2359550561798,
+            "y_upper": 431.7299578059072,
+            "absorbance": {
+              "y_liquid": 1258.2359550561798,
+              "y_foam_top": 438,
+              "A_max": 1.6386733055114746,
+              "threshold": 0.32773466110229493,
+              "integral_cm": 17.332451159787723,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 130,
+            "t_sec": 216.22,
+            "y_lower": 1236.0186567164178,
+            "y_upper": 499.79017857142856,
+            "absorbance": {
+              "y_liquid": 1236.0186567164178,
+              "y_foam_top": 484,
+              "A_max": 1.6816002130508423,
+              "threshold": 0.33632004261016846,
+              "integral_cm": 15.755843414117566,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 150,
+            "t_sec": 256.26,
+            "y_lower": 1222.4067164179105,
+            "y_upper": 528.2046979865772,
+            "absorbance": {
+              "y_liquid": 1222.4067164179105,
+              "y_foam_top": 520,
+              "A_max": 1.674644112586975,
+              "threshold": 0.33492882251739503,
+              "integral_cm": 14.111282884573404,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 175,
+            "t_sec": 306.31,
+            "y_lower": 1211.6846153846154,
+            "y_upper": 560.1372549019608,
+            "absorbance": {
+              "y_liquid": 1211.6846153846154,
+              "y_foam_top": 555,
+              "A_max": 1.6532217264175415,
+              "threshold": 0.3306443452835083,
+              "integral_cm": 12.455001394277437,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 200,
+            "t_sec": 356.36,
+            "y_lower": 1204.5056603773585,
+            "y_upper": 620.218253968254,
+            "absorbance": {
+              "y_liquid": 1204.5056603773585,
+              "y_foam_top": 597,
+              "A_max": 1.6319066286087036,
+              "threshold": 0.3263813257217407,
+              "integral_cm": 10.808497135242456,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 225,
+            "t_sec": 406.41,
+            "y_lower": 1200.625,
+            "y_upper": 644.1509433962265,
+            "absorbance": {
+              "y_liquid": 1200.625,
+              "y_foam_top": 628,
+              "A_max": 1.6334480047225952,
+              "threshold": 0.32668960094451904,
+              "integral_cm": 9.788180031003957,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 250,
+            "t_sec": 456.46,
+            "y_lower": 1197.814393939394,
+            "y_upper": 663.8666666666667,
+            "absorbance": {
+              "y_liquid": 1197.814393939394,
+              "y_foam_top": 650,
+              "A_max": 1.6312929391860962,
+              "threshold": 0.3262585878372192,
+              "integral_cm": 9.125757996215754,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 275,
+            "t_sec": 506.51,
+            "y_lower": 1195.6313725490197,
+            "y_upper": 679.9655172413793,
+            "absorbance": {
+              "y_liquid": 1195.6313725490197,
+              "y_foam_top": 669,
+              "A_max": 1.6717910766601562,
+              "threshold": 0.33435821533203125,
+              "integral_cm": 8.528012118915669,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 300,
+            "t_sec": 556.56,
+            "y_lower": 1194.1646586345382,
+            "y_upper": 698.9277108433735,
+            "absorbance": {
+              "y_liquid": 1194.1646586345382,
+              "y_foam_top": 683,
+              "A_max": 1.677607774734497,
+              "threshold": 0.3355215549468994,
+              "integral_cm": 7.822958388215711,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 330,
+            "t_sec": 616.62,
+            "y_lower": 1192.5725806451612,
+            "y_upper": 742.5988023952095,
+            "absorbance": {
+              "y_liquid": 1192.5725806451612,
+              "y_foam_top": 710,
+              "A_max": 1.6617431640625,
+              "threshold": 0.3323486328125,
+              "integral_cm": 6.780981651132038,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 360,
+            "t_sec": 676.68,
+            "y_lower": 1191.4831932773109,
+            "y_upper": 775.4635761589404,
+            "absorbance": {
+              "y_liquid": 1191.4831932773109,
+              "y_foam_top": 724,
+              "A_max": 1.6691006422042847,
+              "threshold": 0.33382012844085696,
+              "integral_cm": 5.811797319432735,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 380,
+            "t_sec": 716.72,
+            "y_lower": 1190.3265306122448,
+            "y_upper": 806.3394495412844,
+            "absorbance": {
+              "y_liquid": 1190.3265306122448,
+              "y_foam_top": 724,
+              "A_max": 1.6805943250656128,
+              "threshold": 0.33611886501312255,
+              "integral_cm": 5.310398275236368,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 400,
+            "t_sec": 756.76,
+            "y_lower": 1189.896694214876,
+            "y_upper": 964.7037037037037,
+            "absorbance": {
+              "y_liquid": 1189.896694214876,
+              "y_foam_top": 1000,
+              "A_max": 1.6806907653808594,
+              "threshold": 0.3361381530761719,
+              "integral_cm": 3.139578322334916,
+              "gamma": NaN
+            }
+          },
+          {
+            "frame": 440,
+            "t_sec": 836.84,
+            "y_lower": 1191.049107142857,
+            "y_upper": 994.7127659574468,
+            "absorbance": {
+              "y_liquid": 1191.049107142857,
+              "y_foam_top": 1035,
+              "A_max": 1.6528483629226685,
+              "threshold": 0.3305696725845337,
+              "integral_cm": 2.4992106061380124,
+              "gamma": NaN
+            }
+          }
+        ],
+        "absorbance_params": {
+          "channel": "G",
+          "light_blur": 1.0,
+          "r_dens": 64,
+          "foam_k": 5.0,
+          "dead_thresh": 178.0,
+          "dead_dilate": 2,
+          "px_per_cm": 68.11560350808892,
+          "section_cm2": 35.25652355491145,
+          "y_top": 4,
+          "cx": 171
+        },
+        "ref_frames": [
+          5,
+          15
+        ],
+        "A_scale": [
+          0.0,
+          1.75
+        ],
+        "layout": "specimen panel | A(x, y) map | A(z) profile + colour bar, one row axis (rows 0..1766 of the frame at 0.3511 px/px), header 90 px",
+        "n_dead_pixels": 263378,
+        "frame_ms": 650,
+        "last_frame_ms": 2600,
+        "total_ms": 14950
+      }
+    },
+    {
       "file": "detection_timeline.gif",
       "size_px": [
         306,
         710
       ],
-      "bytes": 1047184,
-      "description": "Animated timeline of the green-screen run: 15 frames from the pour to after the foam collapse, each the specimen panel (wash, flat lines, readouts) with a readout box giving t and the three volumes; 550 ms per frame, the last one held longer. Times count from the start of the pour.",
+      "bytes": 1395071,
+      "frames": 20,
+      "description": "Animated timeline of the green-screen run: 20 frames from the pour to after the foam collapse, each the specimen panel (wash, flat lines, readouts) with a readout box giving t and the three volumes; 650 ms per frame, the last one held 4x longer. Times count from the start of the pour.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
@@ -429,10 +768,22 @@
             "y_upper": 431.7299578059072
           },
           {
+            "frame": 130,
+            "t_sec": 216.22,
+            "y_lower": 1236.0186567164178,
+            "y_upper": 499.79017857142856
+          },
+          {
             "frame": 150,
             "t_sec": 256.26,
             "y_lower": 1222.4067164179105,
             "y_upper": 528.2046979865772
+          },
+          {
+            "frame": 175,
+            "t_sec": 306.31,
+            "y_lower": 1211.6846153846154,
+            "y_upper": 560.1372549019608
           },
           {
             "frame": 200,
@@ -441,10 +792,22 @@
             "y_upper": 620.218253968254
           },
           {
+            "frame": 225,
+            "t_sec": 406.41,
+            "y_lower": 1200.625,
+            "y_upper": 644.1509433962265
+          },
+          {
             "frame": 250,
             "t_sec": 456.46,
             "y_lower": 1197.814393939394,
             "y_upper": 663.8666666666667
+          },
+          {
+            "frame": 275,
+            "t_sec": 506.51,
+            "y_lower": 1195.6313725490197,
+            "y_upper": 679.9655172413793
           },
           {
             "frame": 300,
@@ -453,10 +816,16 @@
             "y_upper": 698.9277108433735
           },
           {
-            "frame": 350,
-            "t_sec": 656.66,
-            "y_lower": 1191.9756097560976,
-            "y_upper": 743.8704453441295
+            "frame": 330,
+            "t_sec": 616.62,
+            "y_lower": 1192.5725806451612,
+            "y_upper": 742.5988023952095
+          },
+          {
+            "frame": 360,
+            "t_sec": 676.68,
+            "y_lower": 1191.4831932773109,
+            "y_upper": 775.4635761589404
           },
           {
             "frame": 380,
@@ -477,7 +846,9 @@
             "y_upper": 994.7127659574468
           }
         ],
-        "frame_ms": 550
+        "frame_ms": 650,
+        "last_frame_ms": 2600,
+        "total_ms": 14950
       }
     },
     {
