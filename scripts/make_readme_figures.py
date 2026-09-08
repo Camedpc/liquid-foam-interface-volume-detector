@@ -407,6 +407,27 @@ class Manifest:
             tmp_png.unlink(missing_ok=True)
         return out
 
+    def register_file(self, name: str, description: str, source: dict[str, Any]) -> Path | None:
+        """Manifest entry for a file already in ``out_dir`` (owner-provided media, GIFs)."""
+        path = self.out_dir / name
+        if not path.exists():
+            print(f"  {name:<34s} missing, not registered")
+            return None
+        try:
+            from PIL import Image
+            with Image.open(path) as im:
+                size = [int(im.size[0]), int(im.size[1])]
+                n_frames = int(getattr(im, "n_frames", 1))
+        except Exception:
+            size, n_frames = [0, 0], 1
+        entry: dict[str, Any] = {"file": name, "size_px": size, "bytes": int(path.stat().st_size),
+                                 "description": description, "source": source}
+        if n_frames > 1:
+            entry["frames"] = n_frames
+        self.entries[name] = entry
+        print(f"  {name:<34s} {size[0]:>5d} x {size[1]:<5d} {entry['bytes'] / 1e6:5.2f} MB  (registered)")
+        return path
+
     def write(self) -> None:
         data = {
             "note": "Every image comes from a real run; sources give the run, the frame and the parameters.",
@@ -1104,6 +1125,109 @@ def fig_absorbance(g: RunCtx | None, b: RunCtx | None, m: Manifest, absorbance: 
                       src | {"result": res.to_dict()})
 
 
+RECTIFY_DEFAULTS: dict[str, Any] = {"start": 2250, "n_frames": 1798, "walls": "calib"}
+RECTIFY_MEDIA = {
+    # owner-provided media (produced with the original analysis code), registered as they are
+    "rectify_compare.gif": "Side-by-side zoom on the liquid/foam interface, original (left) and rectified (centre), "
+                           "with the per-column detections, the mean line and the empirical bounds, and the live "
+                           "u_method(t) plot (right); 20 s of the 60 s clip, 6 fps.",
+    "rectify_rings_before.png": "The graduation circles of the focal-free model projected on a green-screen frame "
+                                "before rectification: arcs of ellipse, bending down above the horizon and up below.",
+    "rectify_rings_after.png": "The same frame and circles after rectification: every ring is a horizontal line.",
+}
+
+
+def fig_rectify(g: RunCtx | None, b: RunCtx | None, m: Manifest, rectify: dict[str, Any] | None = None,
+                **_: Any) -> None:
+    """``rectify_uncertainty``, ``rectify_graduations``: the method term before/after cylinder rectification."""
+    from cylvision.rectify import (compare_frame, compare_video, crop_maps, median_edges, rectification_maps,
+                                   rectify_frame, render_graduations_figure, render_uncertainty_figure,
+                                   residual_delta_px, summarize_compare, wall_edges)
+    from cylvision.uncertainty import curvature_delta_px, geometry_from_calibration, volume_to_row_fn
+    if not rectify:
+        print("  rectification figures skipped (no --rectify-run / --rectify-video)")
+        return
+    ctx: RunCtx = rectify["ctx"]
+    o = rectify["opts"]
+    calib, params, model_fn = ctx.calib, ctx.params, ctx.model_fn
+    geom = geometry_from_calibration(calib)
+    if geom.source != "focal_free":
+        print("  warning: no back clicks, the rectification uses the physical-radius geometry")
+    W, H = int(calib.image_size[0]), int(calib.image_size[1])
+    start, n = int(o["start"]), int(o["n_frames"])
+    fps = float(ctx.video.fps) or 30.0
+    cx_px, a_px = float(geom.cx_px), float(geom.a_px)
+    if o["walls"] == "detect":
+        y_band = (int(min(calib.graduations_px_y)) - 20, int(max(calib.graduations_px_y)) + 20)
+        med = median_edges([wall_edges(ctx.frame(i), y_band, (calib.x_left, calib.x_right))
+                            for i in (start, start + n // 2, start + n - 1)])
+        if med is not None:
+            cx_px, a_px = (med[0] + med[1]) / 2.0, (med[1] - med[0]) / 2.0
+    maps = rectification_maps(geom, W, H, cx_px=cx_px, a_px=a_px)
+    print(f"  geometry {geom.summary()}; mapping cx = {cx_px:.1f}, a = {a_px:.1f} px; "
+          f"frames {start}..{start + n - 1} ({n / fps:.0f} s)")
+
+    def progress(k: int, total: int, row: dict) -> None:
+        if k == 1 or k == total or k % 300 == 0:
+            print(f"    {k:5d}/{total}  u_orig {row['u_orig_mL']:.2f}  u_rect {row['u_rect_mL']:.2f} mL")
+
+    rows = compare_video(ctx.video, calib, params, maps, model_fn, start=start, n_frames=n, progress=progress)
+    summary = summarize_compare(rows, fps=fps)
+    idx_s = start + n // 2
+    maps_crop = crop_maps(maps, calib.x_left, calib.x_right)
+    row_s, res_o, res_r, crop_o, crop_r = compare_frame(ctx.frame(idx_s), calib, params, maps_crop, model_fn)
+    panels = []
+    for crop, res in ((crop_o, res_o), (crop_r, res_r)):
+        mu = method_uncertainty_from_result(res, model_fn, which="lower")
+        img = annotate_interfaces(crop, res, params, zoom=3.0, show_extras=False, y_bounds=(mu["y_up"], mu["y_lo"]),
+                                  line_w=3, show_labels=False, show_masks=False, show_axis=False)
+        y = mu["y_mean"] if math.isfinite(mu["y_mean"]) else crop.shape[0] / 2
+        panels.append(img[int(max(0, (y - 40) * 3.0)):int(min(img.shape[0], (y + 40) * 3.0))])
+    h = min(p.shape[0] for p in panels)
+    labels = (f"original, frame {idx_s}: {row_s['n_kept_orig']} columns, range {row_s['range_orig_mL']:.2f} mL, "
+              f"u = {row_s['u_orig_mL']:.2f} mL",
+              f"rectified, same frame: {row_s['n_kept_rect']} columns, range {row_s['range_rect_mL']:.2f} mL, "
+              f"u = {row_s['u_rect_mL']:.2f} mL")
+    title = f"lower interface, frames {start}..{start + len(rows) - 1} ({len(rows) / fps:.0f} s), band r = {params.r_lower} px"
+    y_med = float(np.nanmedian([r["y_orig_px"] for r in rows]))
+    residual = {"y_interface_px": y_med, "delta_before_px": curvature_delta_px(y_med, geom, params.r_lower),
+                "delta_after_exact_px": residual_delta_px(y_med, geom, geom, params.r_lower, cx_px=cx_px, a_px=a_px),
+                "delta_after_rho_plus_0.01_px": residual_delta_px(
+                    y_med, geom, replace(geom, rho=geom.rho + 0.01), params.r_lower, cx_px=cx_px, a_px=a_px),
+                "delta_after_horizon_plus_20px_px": residual_delta_px(
+                    y_med, geom, replace(geom, cy_px=geom.cy_px + 20.0), params.r_lower, cx_px=cx_px, a_px=a_px)}
+    src = source_of(ctx, None, window={"start": start, "n_frames": len(rows), "fps": fps},
+                    geometry={"source": geom.source, "rho": geom.rho, "cy_px": geom.cy_px, "cx_px": cx_px,
+                              "a_px": a_px, "v_horizon_ml": geom.v_horizon_ml},
+                    summary=summary, scatter_frame={"frame": idx_s, **row_s}, residual_curvature=residual)
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td) / "rectify_uncertainty.png"
+        render_uncertainty_figure(rows, fps, tmp, key="u", scatter=(panels[0][:h], panels[1][:h]),
+                                  scatter_labels=labels, title=title)
+        m.save_figure_png("rectify_uncertainty", tmp,
+                          "Per-frame method uncertainty of the lower interface, original vs rectified, over the 60 s "
+                          "window (raw values and 1 s rolling max), with one frame before/after rectification "
+                          "annotated with the per-column detections and the empirical bounds.", src)
+        tmp = Path(td) / "rectify_graduations.png"
+        frame_g = ctx.frame(start)
+        v2r = volume_to_row_fn(calib, model_fn)
+        render_graduations_figure(frame_g, rectify_frame(frame_g, maps), calib, geom, lambda V: float(v2r(V)), tmp,
+                                  cx_px=cx_px, a_px=a_px)
+        m.save_figure_png("rectify_graduations", tmp,
+                          "The graduation circles projected with the focal-free geometry on the first frame of the "
+                          "window, and the same circles pushed through the inverse projection on the rectified frame.",
+                          source_of(ctx, start, geometry=src["geometry"]), max_w=1100)
+    for name, desc in RECTIFY_MEDIA.items():
+        m.register_file(name, desc, {"run": ctx.name, "video": ctx.video.path.name, "run_dir": ctx.run.root.name,
+                                     "provenance": "owner-provided, produced with the original analysis code "
+                                                   "(interface_uncertainty_video_compare.py / rectify_cylinder.py); "
+                                                   "the GIF is a 20 s, 6 fps, 1000 px conversion of the 60 s video"})
+    s = summary["u"]
+    print(f"  u_method (range / 2√3): original median {s['orig']['median']:.3f} mean {s['orig']['mean']:.3f}, "
+          f"rectified median {s['rect']['median']:.3f} mean {s['rect']['mean']:.3f} mL, "
+          f"ratio {s['ratio_median']:.2f} / {s['ratio_mean']:.2f}")
+
+
 FIGURES: dict[str, tuple[Callable[..., None], tuple[str, ...]]] = {
     "hero": (fig_hero, ("hero", "tuner_canvas_inline")),
     "timeline": (fig_timeline, ("timeline_green", "detection_timeline")),
@@ -1122,6 +1246,7 @@ FIGURES: dict[str, tuple[Callable[..., None], tuple[str, ...]]] = {
     "uncertainty": (fig_uncertainty, ("uncertainty_schematic", "uncertainty_curvature", "uncertainty_budget")),
     "uncertainty_method": (fig_uncertainty_method, ("uncertainty_method",)),
     "absorbance": (fig_absorbance, ("heatmap_A", "heatmap_c", "absorbance_measurement")),
+    "rectify": (fig_rectify, ("rectify_uncertainty", "rectify_graduations")),
 }
 
 
@@ -1182,6 +1307,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="profile band half-width in px (default %(default)s)")
     a.add_argument("--absorbance-px-per-cm", type=float, default=None,
                    help="vertical scale in px per cm (default: from the calibration slope and the section)")
+    r = p.add_argument_group("rectify group (run with back clicks, full-frame-rate video)")
+    r.add_argument("--rectify-run", type=Path, default=None, help="run dir with front + back graduation clicks")
+    r.add_argument("--rectify-video", type=Path, default=None, help="source video at full frame rate")
+    r.add_argument("--rectify-params", type=Path, default=None,
+                   help="params.json of the detector (default: <rectify-run>/params.json)")
+    r.add_argument("--rectify-start", type=int, default=RECTIFY_DEFAULTS["start"],
+                   help="first source frame of the window (default %(default)s)")
+    r.add_argument("--rectify-n-frames", type=int, default=RECTIFY_DEFAULTS["n_frames"],
+                   help="frames of the window (default %(default)s = 60 s at 29.97 fps)")
+    r.add_argument("--rectify-walls", choices=("calib", "detect"), default=RECTIFY_DEFAULTS["walls"],
+                   help="axis / half-width of the mapping from the calibration crop or the measured glass walls")
     return p.parse_args(argv)
 
 
@@ -1207,12 +1343,17 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = Manifest(out_dir)
 
-    needs_runs = [x for x in groups if x != "absorbance"]
+    needs_runs = [x for x in groups if x not in ("absorbance", "rectify")]
     if needs_runs and not all((args.green_run, args.green_video, args.black_run, args.black_video)):
         sys.exit("--green-run/--green-video and --black-run/--black-video are required for the groups "
-                 f"{needs_runs} (only the absorbance group works without them)")
+                 f"{needs_runs} (only the absorbance and rectify groups work without them)")
     g = b = None
     absorbance: dict[str, Any] | None = None
+    rectify: dict[str, Any] | None = None
+    if "rectify" in groups and args.rectify_run and args.rectify_video:
+        ctx_r = load_ctx("rectify", args.rectify_run, args.rectify_video, args.rectify_params, 1.0)
+        rectify = {"ctx": ctx_r, "opts": {"start": args.rectify_start, "n_frames": args.rectify_n_frames,
+                                          "walls": args.rectify_walls}}
     if needs_runs:
         g = load_ctx("green", args.green_run, args.green_video, args.green_params, args.frame_scale_green,
                      t0_frame=args.t0_frame)
@@ -1232,9 +1373,11 @@ def main(argv: list[str] | None = None) -> int:
         for name in groups:
             fn, _files = FIGURES[name]
             print(f"[{name}]")
-            fn(g, b, manifest, batches=batches, panel_screenshot=args.panel_screenshot, absorbance=absorbance)
+            fn(g, b, manifest, batches=batches, panel_screenshot=args.panel_screenshot, absorbance=absorbance,
+               rectify=rectify)
     finally:
-        for ctx in (g, b, None if absorbance is None else absorbance["ctx"]):
+        for ctx in (g, b, None if absorbance is None else absorbance["ctx"],
+                    None if rectify is None else rectify["ctx"]):
             if ctx is not None:
                 ctx.video.close()
     manifest.write()

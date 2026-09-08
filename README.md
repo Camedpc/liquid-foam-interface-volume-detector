@@ -12,7 +12,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests: pytest](https://img.shields.io/badge/tests-pytest%20%C2%B7%2092%20passed-brightgreen.svg)](#tests)
+[![Tests: pytest](https://img.shields.io/badge/tests-pytest%20%C2%B7%20105%20passed-brightgreen.svg)](#tests)
 [![OpenCV](https://img.shields.io/badge/built%20with-OpenCV%20%C2%B7%20NumPy%20%C2%B7%20SciPy%20%C2%B7%20Matplotlib%20%C2%B7%20Pillow-lightgrey.svg)](requirements.txt)
 
 ## The foam, over time
@@ -36,6 +36,7 @@ Nothing in it is specific to beer: any vertical graduated cylinder filmed by a f
 - **Batches a whole video** into a CSV (row, volume and per-frame spread of each interface) and a $V(t)$ figure, one frame in $K$.
 - **Quantifies the uncertainty** of every reading: calibration, pixel quantisation, cylinder curvature (a graduation is a circle, not a line) and the empirical spread of the detector, combined in quadrature.
 - **Sees inside the foam** on a back-lit setup: an effective absorbance $A = -\ln(I/I_0)$ against a reference of the empty cylinder gives the foam top by threshold and, through a mass balance, the liquid content of the foam as heat maps $A(t, V)$ and $c(t, V)$.
+- **Straightens the cylinder** when the calibration carries back clicks: an inverse projection turns every elliptical arc (graduation ring, interface) into a horizontal line, and the per-frame spread of the detector drops by half.
 
 ```mermaid
 flowchart LR
@@ -43,6 +44,7 @@ flowchart LR
     B --> C["run_batch.py<br/>video → levels.csv + figure.png"]
     C --> D["uncertainty_report.py<br/>budget table + figures"]
     B --> E["absorbance_report.py<br/>reference I₀ → A(t, V), c(t, V) heat maps"]
+    B --> F["rectify_compare.py<br/>original vs rectified → u_method(t)"]
 ```
 
 ## Install
@@ -450,6 +452,60 @@ python scripts/uncertainty_report.py --run-dir runs/pour --video pour.mp4 --fram
 
 The report prints the geometry and the Markdown table above and writes `uncertainty_curvature.png`, `uncertainty_schematic.png`, `uncertainty_budget.png` and `uncertainty.json` into the run directory. The method term is read from `levels.csv`; without a batch the budget carries a placeholder and says so.
 
+## Reducing the uncertainty: rectifying the cylinder
+
+The method term is not only the roughness of the interface. A horizontal cross-section of the cylinder — a graduation ring, the liquid/foam interface — is a circle, and the camera sees it as an arc of ellipse: below the camera horizon the arc bends up towards the walls, above it bends down. The detector averages the interface row over a band of columns, so the vertical span of the arc inside the band goes straight into the per-column spread, on top of the real irregularity of the interface. The curvature term of the budget models exactly that span, but it can also be removed at the source.
+
+<table>
+<tr>
+<td align="center" width="50%"><img src="docs/images/rectify_rings_before.png" width="70%"><br><em>Before: the rings of the focal-free model (ρ = 0.091, horizon at 520 mL) drawn on a green-screen frame. The 100 mL ring, 730 px below the horizon, spans 5.3 px across a 64 px band.</em></td>
+<td align="center" width="50%"><img src="docs/images/rectify_rings_after.png" width="70%"><br><em>After: the same frame through the inverse projection — every ring is a horizontal line, the printed scale on the right is undistorted and the background is untouched. Both images were produced with the original analysis code.</em></td>
+</tr>
+</table>
+
+**Inverse projection.** With $\rho = R/D$ and the horizon row $c_y$ from the focal-free fit, the projected axis column $c_x$ and the silhouette half-width $a$ (px), the circle whose front point is at row $v_\text{click}$ projects, without tilt, to
+
+$$u(\theta) - c_x = \frac{a \sin\theta \sqrt{1-\rho^2}}{1 - \rho\cos\theta}, \qquad v(\theta) - c_y = \frac{(v_\text{click} - c_y)(1-\rho)}{1 - \rho\cos\theta}.$$
+
+The rectified image takes its column linear in $\sin\theta$ and its row equal to the front row of the circle through the pixel, so `cv2.remap` reads every output pixel $(x, y)$ at
+
+$$\sin\theta = \frac{x - c_x}{a}, \qquad x_\text{in} = c_x + \frac{a \sin\theta \sqrt{1-\rho^2}}{1 - \rho\cos\theta}, \qquad y_\text{in} = c_y + \frac{(y - c_y)(1-\rho)}{1 - \rho\cos\theta},$$
+
+and is the identity outside the cylinder ($|\sin\theta| > 1$). The axis column is a fixed point, so the front graduation clicks keep their rows and the calibration $y \to V$ is used as it is on the rectified frames (`cylvision.rectify.rectify_calibration` only drops the back clicks, which no longer mean anything). `rectification_maps(geom, W, H)` builds the two maps from the `CameraGeometry` of the budget; `rectify_frame` applies them; `compare_video` runs the detector on both versions of every frame.
+
+<p align="center"><img src="docs/images/rectify_graduations.png" width="70%"></p>
+
+*Source frame 2250 of the run with back clicks (75 s into the recording, liquid at 111 mL): the graduation circles of the focal-free geometry every 50 mL (plasma ramp, solid = clicked rings), and the same circles pushed through the inverse projection on the rectified frame. The bottom rings, whose arcs sag by up to 60 px across the silhouette, become flat; the printed scale on the right wall stays where it was.*
+
+<p align="center"><img src="docs/images/rectify_compare.gif" width="100%"></p>
+
+*Original (left) and rectified (centre) zoom on the liquid/foam interface, source frames 2250–4047 (60 s) of the same run, with the per-column detections, the mean row and the dashed empirical bounds; right, the live $u_\text{method}(t)$ of both (1 s rolling max in bold). Produced with the original analysis code; shown here as a 20 s, 6 fps excerpt of the 60 s video (the plot builds up over the full minute).*
+
+<p align="center"><img src="docs/images/rectify_uncertainty.png" width="100%"></p>
+
+*The same 60 s through `cylvision`: per-frame $u_\text{method}$ of the lower interface on the original and on the rectified crop (thin: raw values, bold: 1 s rolling max, dotted: medians), and the frame in the middle of the window (source frame 3149, liquid at 157 mL) before and after rectification — 129 columns in both cases, range 3.43 mL → 1.71 mL, $u_	ext{method}$ 0.99 → 0.50 mL.*
+
+| window: source frames 2250–4047, 60 s, 1798 frames, `T_lower` 16, `r_lower` 64 px | original | rectified | ratio |
+|---|---:|---:|---:|
+| $u_\text{method}$ = range / (2√3), **median** | 1.15 mL | **0.50 mL** | **0.43** |
+| $u_\text{method}$ = range / (2√3), mean | 1.09 mL | 0.56 mL | 0.51 |
+| $u_\text{method}$ = range / (2√3), p95 | 1.32 mL | 0.66 mL | 0.50 |
+| max half-range / √3 (definition of the original analysis), median | 1.27 mL | 0.67 mL | 0.53 |
+| max half-range / √3, 1 s rolling max, mean | 1.57 mL | 0.90 mL | 0.57 |
+
+*Run `10 1000mL final results pour beer` (green screen, 1000 mL cylinder, focal-free geometry ρ = 0.091, horizon y = 955 px), lower interface rising from 109 to 180 mL during the window. The rectified reading is 1.1 mL lower on average than the original one: the mean over the band of the original crop includes the upward-bent wings of the arc, the rectified one reads the front row, which is what the calibration clicks measured. The original analysis reported about 1.45 mL → 0.95–1.0 mL on the same clip with its own detector, the max/√3 definition and the 1 s rolling max: the same halving. The budget definition gives smaller numbers because the range is divided by 2√3 instead of taking the larger half-range over √3 (equal only for a symmetric spread), and because it reads the raw values, not their rolling maximum.*
+
+```bash
+python scripts/rectify_compare.py --video pour.MOV --run-dir runs/pour --params runs/pour/params.json \
+    --start 2250 --n-frames 1798 --out runs/pour/rectify
+# options: --walls detect   measure the glass walls on three frames instead of using the calibration crop
+#          --which upper    --tol-ml 7   --scatter-frame N   --graduation-frame N
+```
+
+The script writes `rectify_compare.csv` (per frame: rows, volumes, bounds, both definitions of $u_\text{method}$ for both images), `rectify_summary.json` (geometry, statistics, ratios) and the two figures above.
+
+**Caveats.** The mapping needs the focal-free geometry, i.e. **back clicks** on a few graduations (`calibrate.py --back`): with front clicks only, the horizon row is a guess and the rectification would bend the arcs the wrong way as often as the right one. The model has no tilt (the focal-free fit absorbs a small pitch into the horizon row) and assumes a right circular cylinder. The curvature term of the budget is the same arc seen by the model: with the exact geometry it vanishes after rectification (Δ = 4.6 px → 0 at the 160 mL level, r = 64 px), and what survives is the error of the geometry — 0.6 px for ρ off by 0.01, 0.2 px for a horizon off by 20 px — so keep the term in the budget with that residual rather than dropping it. The gain is the halving of the method term at the ends of the cylinder; on the horizon the arcs are already flat and there is nothing to gain.
+
 ## Project layout
 
 ```
@@ -457,6 +513,8 @@ liquid-foam-interface-volume-detector/
 ├── cylvision/
 │   ├── io.py                  unicode-safe image IO, VideoSource, key codes
 │   ├── magnifier.py           ×8 loupe for pixel-accurate clicks
+│   ├── rectify.py             cylinder rectification: inverse-projection maps, before/after comparison,
+│   │                          wall edges, residual curvature, the two figures
 │   ├── calibration/           models.py (PCHIP / poly2 / Möbius), clicks.py, back_clicks.py,
 │   │                          store.py (Calibration, PRESETS, JSON), check.py (verification figure)
 │   ├── detection/             gradient.py (Sobel, masks), interfaces.py (DetectionParams, two-pass
@@ -469,7 +527,7 @@ liquid-foam-interface-volume-detector/
 │   └── absorbance/            reference.py (I₀, dead pixels), beer_lambert.py (A map, A(z), foam top,
 │                              mass balance), batch.py (video → A(t, z)), heatmap.py (figures)
 ├── scripts/                   calibrate.py · tune.py · run_batch.py · uncertainty_report.py ·
-│                              absorbance_report.py · make_readme_figures.py
+│                              absorbance_report.py · rectify_compare.py · make_readme_figures.py
 ├── docs/                      uncertainty.md (full derivation) · images/ (every README figure, the GIF + manifest)
 ├── tests/                     pytest, synthetic images only
 ├── SPEC.md                    internal engineering spec
@@ -480,10 +538,10 @@ liquid-foam-interface-volume-detector/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q          # 92 passed in ~20 s
+python -m pytest -q          # 105 passed in ~20 s
 ```
 
-The tests need no video and no display: synthetic three-band crops (air / foam / liquid, both polarities, with noise) check that the detector finds both interfaces within ±2 px and that swapping the polarity breaks it; the calibration models, the legacy JSON layouts, the curvature geometry (Δ = 0 on the horizon, symmetric growth, $u = \Delta/(2\sqrt{3})$), the empirical spread, the batch/CSV round trip and the TrueType text helper (font lookup, anchors, backing box, Hershey fallback, readout alignment) are covered as well. `tests/test_absorbance.py` builds a uniform bright reference with printed marks and a darker foam band: the map recovers $-\ln(I/I_0)$, the dead-pixel fill leaves valid pixels untouched, the profile threshold finds the top of the band (and moves the right way with $k$ on a diffuse edge), $\gamma$ and $c$ integrate back to a known missing volume, and the three figures are written.
+The tests need no video and no display: synthetic three-band crops (air / foam / liquid, both polarities, with noise) check that the detector finds both interfaces within ±2 px and that swapping the polarity breaks it; the calibration models, the legacy JSON layouts, the curvature geometry (Δ = 0 on the horizon, symmetric growth, $u = \Delta/(2\sqrt{3})$), the empirical spread, the batch/CSV round trip and the TrueType text helper (font lookup, anchors, backing box, Hershey fallback, readout alignment) are covered as well. `tests/test_absorbance.py` builds a uniform bright reference with printed marks and a darker foam band: the map recovers $-\ln(I/I_0)$, the dead-pixel fill leaves valid pixels untouched, the profile threshold finds the top of the band (and moves the right way with $k$ on a diffuse edge), $\gamma$ and $c$ integrate back to a known missing volume, and the three figures are written. `tests/test_rectify.py` draws the projected arc of a synthetic camera and checks that the remap turns it into a horizontal row within 1 px, that the mapping is the identity outside the cylinder and on the axis, that the residual curvature vanishes with the right geometry, that a curved two-band interface loses most of its spread once rectified, and that the wall-edge finder locates a bright cylinder.
 
 ## Regenerating the figures
 
@@ -501,6 +559,9 @@ python scripts/make_readme_figures.py \
 # --only absorbance --absorbance-run runs/backlit --absorbance-video backlit.mp4 \
 #     --absorbance-params runs/backlit/params_gradient.json     the absorbance figures (third run;
 #     --absorbance-ref-frames 5:15 --absorbance-t0-frame 1347   the green/black runs are not needed)
+# --only rectify --rectify-run runs/back --rectify-video back.MOV --rectify-params runs/back/params.json \
+#     --rectify-start 2250 --rectify-n-frames 1798           the rectification figures (run with back clicks,
+#                                                            full-frame-rate video; the owner media are registered as is)
 ```
 
 The overlay style is set in `cylvision/ui/theme.py`: line geometry (`MEAN_LINE_W` = 3 px flat, `MEAN_LINE_SHADOW_W` = 1 px, `TRIANGLE_W/H`, `LEADER_DOT/GAP` for the dotted leader), wash colours and alphas (`FOAM_WASH_BGR`, `LIQUID_WASH_BGR`, `WASH_ALPHA_*`), and the readout typography (`LABEL_FONT_ZONE` = `DejaVuSans`, `LABEL_FONT_VALUE` = `DejaVuSansMono`, `LABEL_ZONE_SIZE`, `LABEL_VALUE_SIZE`, `LABEL_LETTER_SPACING`, `LABEL_BACKING_*`, `LABEL_BAR_W`). The fonts are the TrueType files shipped with matplotlib (`matplotlib.get_data_path()/fonts/ttf`), rendered with Pillow by `cylvision/ui/text.py`, so the figures come out identical on every machine; any other name from that folder (`DejaVuSerif`, `STIXGeneral`, `cmss10`, `cmtt10`...) or a path to a `.ttf` works, and OpenCV's Hershey font is used if Pillow or the file is missing. The wash and the labels can be switched off per call with `show_wash=False` / `show_labels=False` in `annotate_interfaces` and `make_specimen_panel`.

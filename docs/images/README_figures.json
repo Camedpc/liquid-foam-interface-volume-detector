@@ -1387,6 +1387,206 @@
       }
     },
     {
+      "file": "rectify_compare.gif",
+      "size_px": [
+        1000,
+        268
+      ],
+      "bytes": 4521518,
+      "description": "Side-by-side zoom on the liquid/foam interface, original (left) and rectified (centre), with the per-column detections, the mean line and the empirical bounds, and the live u_method(t) plot (right); 20 s of the 60 s clip, 6 fps.",
+      "source": {
+        "run": "rectify",
+        "video": "10 1000mL final results pour beer.MOV",
+        "run_dir": "10 1000mL final results pour beer",
+        "provenance": "owner-provided, produced with the original analysis code (interface_uncertainty_video_compare.py / rectify_cylinder.py); the GIF is a 20 s, 6 fps, 1000 px conversion of the 60 s video"
+      },
+      "frames": 120
+    },
+    {
+      "file": "rectify_graduations.png",
+      "size_px": [
+        1100,
+        1413
+      ],
+      "bytes": 733561,
+      "description": "The graduation circles projected with the focal-free geometry on the first frame of the window, and the same circles pushed through the inverse projection on the rectified frame.",
+      "source": {
+        "run": "rectify",
+        "video": "10 1000mL final results pour beer.MOV",
+        "run_dir": "10 1000mL final results pour beer",
+        "frame": 2250,
+        "t_sec": 75.07,
+        "params": {
+          "polarity": "lower_brighter",
+          "T_lower": 16.0,
+          "T_upper": 16.0,
+          "r_lower": 64,
+          "r_upper": 64,
+          "blur_sigma": 5.7,
+          "blur_h": 38,
+          "min_h_upper": 3,
+          "y_top": 5,
+          "y_bottom": 1869,
+          "cx": 157,
+          "channel": "gray"
+        },
+        "geometry": {
+          "source": "focal_free",
+          "rho": 0.09113082039911306,
+          "cy_px": 954.8640945429293,
+          "cx_px": 518.0,
+          "a_px": 157.0,
+          "v_horizon_ml": 519.9513381995113
+        }
+      }
+    },
+    {
+      "file": "rectify_rings_after.png",
+      "size_px": [
+        211,
+        827
+      ],
+      "bytes": 302791,
+      "description": "The same frame and circles after rectification: every ring is a horizontal line.",
+      "source": {
+        "run": "rectify",
+        "video": "10 1000mL final results pour beer.MOV",
+        "run_dir": "10 1000mL final results pour beer",
+        "provenance": "owner-provided, produced with the original analysis code (interface_uncertainty_video_compare.py / rectify_cylinder.py); the GIF is a 20 s, 6 fps, 1000 px conversion of the 60 s video"
+      }
+    },
+    {
+      "file": "rectify_rings_before.png",
+      "size_px": [
+        241,
+        827
+      ],
+      "bytes": 308884,
+      "description": "The graduation circles of the focal-free model projected on a green-screen frame before rectification: arcs of ellipse, bending down above the horizon and up below.",
+      "source": {
+        "run": "rectify",
+        "video": "10 1000mL final results pour beer.MOV",
+        "run_dir": "10 1000mL final results pour beer",
+        "provenance": "owner-provided, produced with the original analysis code (interface_uncertainty_video_compare.py / rectify_cylinder.py); the GIF is a 20 s, 6 fps, 1000 px conversion of the 60 s video"
+      }
+    },
+    {
+      "file": "rectify_uncertainty.png",
+      "size_px": [
+        1600,
+        590
+      ],
+      "bytes": 267297,
+      "description": "Per-frame method uncertainty of the lower interface, original vs rectified, over the 60 s window (raw values and 1 s rolling max), with one frame before/after rectification annotated with the per-column detections and the empirical bounds.",
+      "source": {
+        "run": "rectify",
+        "video": "10 1000mL final results pour beer.MOV",
+        "run_dir": "10 1000mL final results pour beer",
+        "params": {
+          "polarity": "lower_brighter",
+          "T_lower": 16.0,
+          "T_upper": 16.0,
+          "r_lower": 64,
+          "r_upper": 64,
+          "blur_sigma": 5.7,
+          "blur_h": 38,
+          "min_h_upper": 3,
+          "y_top": 5,
+          "y_bottom": 1869,
+          "cx": 157,
+          "channel": "gray"
+        },
+        "window": {
+          "start": 2250,
+          "n_frames": 1798,
+          "fps": 29.97391129841461
+        },
+        "geometry": {
+          "source": "focal_free",
+          "rho": 0.09113082039911306,
+          "cy_px": 954.8640945429293,
+          "cx_px": 518.0,
+          "a_px": 157.0,
+          "v_horizon_ml": 519.9513381995113
+        },
+        "summary": {
+          "n_frames": 1798,
+          "u": {
+            "orig": {
+              "n": 1779,
+              "median": 1.153412762582068,
+              "mean": 1.0939059804345732,
+              "p95": 1.3187335763719008
+            },
+            "rect": {
+              "n": 1779,
+              "median": 0.49555509064322345,
+              "mean": 0.5619332508825179,
+              "p95": 0.6608589215463114
+            },
+            "ratio_median": 0.4296424547391494,
+            "ratio_mean": 0.5136942853711067,
+            "rolling_max_1s": {
+              "orig_mean": 1.287244220430029,
+              "rect_mean": 0.7042630560181675,
+              "orig_median": 1.3193369821886374,
+              "rect_median": 0.6605564129238871
+            }
+          },
+          "umax": {
+            "orig": {
+              "n": 1779,
+              "median": 1.2649140143140973,
+              "mean": 1.2756522791325138,
+              "p95": 1.5729781561318288
+            },
+            "rect": {
+              "n": 1779,
+              "median": 0.6736293769965194,
+              "mean": 0.6770364475117524,
+              "p95": 0.9040054005635055
+            },
+            "ratio_median": 0.5325495404221579,
+            "ratio_mean": 0.5307374576809911,
+            "rolling_max_1s": {
+              "orig_mean": 1.5687311633950942,
+              "rect_mean": 0.8954069991595048,
+              "orig_median": 1.5610971392088306,
+              "rect_median": 0.9115960770537935
+            }
+          }
+        },
+        "scatter_frame": {
+          "frame": 3149,
+          "y_orig_px": 1586.7209302325582,
+          "V_orig_mL": 156.66034878469924,
+          "y_up_orig_px": 1583.0,
+          "y_lo_orig_px": 1589.0,
+          "range_orig_mL": 3.4299905887149578,
+          "n_orig": 129,
+          "n_kept_orig": 129,
+          "u_orig_mL": 0.990152994856232,
+          "umax_orig_mL": 1.2281426538681157,
+          "y_rect_px": 1588.1472868217054,
+          "V_rect_mL": 155.84498887046686,
+          "y_up_rect_px": 1587.0,
+          "y_lo_rect_px": 1590.0,
+          "range_rect_mL": 1.714854616002441,
+          "n_rect": 129,
+          "n_kept_rect": 129,
+          "u_rect_mL": 0.4950358870850408,
+          "umax_rect_mL": 0.6114281635186757
+        },
+        "residual_curvature": {
+          "y_interface_px": 1587.624031007752,
+          "delta_before_px": 4.585631940942449,
+          "delta_after_exact_px": 0.0,
+          "delta_after_rho_plus_0.01_px": 0.5600688920108041,
+          "delta_after_horizon_plus_20px_px": 0.17383818871849144
+        }
+      }
+    },
+    {
       "file": "setup_black_background.png",
       "size_px": [
         1244,
