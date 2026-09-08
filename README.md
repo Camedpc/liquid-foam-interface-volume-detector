@@ -483,7 +483,7 @@ and is the identity outside the cylinder ($|\sin\theta| > 1$). The axis column i
 
 <p align="center"><img src="docs/images/rectify_uncertainty.png" width="100%"></p>
 
-*The same 60 s through `cylvision`: per-frame $u_\text{method}$ of the lower interface on the original and on the rectified crop (thin: raw values, bold: 1 s rolling max, dotted: medians), and the frame in the middle of the window (source frame 3149, liquid at 157 mL) before and after rectification — 129 columns in both cases, range 3.43 mL → 1.71 mL, $u_	ext{method}$ 0.99 → 0.50 mL.*
+*The same 60 s through `cylvision`: per-frame $u_\text{method}$ of the lower interface on the original and on the rectified crop (thin: raw values, bold: 1 s rolling max, dotted: medians), and the frame in the middle of the window (source frame 3149, liquid at 157 mL) before and after rectification — 129 columns in both cases, range 3.43 mL → 1.71 mL, $u_\text{method}$ 0.99 → 0.50 mL.*
 
 | window: source frames 2250–4047, 60 s, 1798 frames, `T_lower` 16, `r_lower` 64 px | original | rectified | ratio |
 |---|---:|---:|---:|
