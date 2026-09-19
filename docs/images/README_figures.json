@@ -363,9 +363,9 @@
         958,
         737
       ],
-      "bytes": 2243973,
+      "bytes": 2248227,
       "frames": 20,
-      "description": "Detection | A(x, y) | A(z) of the green-screen run, 20 frames from the pour to after the foam collapse, vertically registered (same rows, same scale) on a white figure with a title strip (frame, t after the start of the pour) and a caption under each panel: specimen panel with the readout (t, three volumes), effective absorbance map against the empty-cylinder reference (inferno, fixed scale 0..1.75, mL axis), radial profile A(z) with the threshold A_max / k, the liquid/foam row (red, gradient detector) and the foam top by threshold (teal), the shaded foam integral, drawn by the panel blocks of absorbance_measurement.png; 650 ms per frame, the last one held 4x longer.",
+      "description": "Detection | A(x, y) | A(z) of the green-screen run, 20 frames from the pour to after the foam collapse, vertically registered (same rows, same scale) on a white figure with a title strip (frame, t after the start of the pour) and a caption under each panel: specimen panel with the readout (t, three volumes), effective absorbance map against the empty-cylinder reference (inferno, fixed scale 0..1.75, mL axis), radial profile A(z) with the threshold A_max / k, the liquid/foam row (red, gradient detector) and the foam top by threshold (teal), the shaded foam integral, drawn by the panel blocks of absorbance_measurement.png; 650 ms per frame, the last one held 4x longer; the loop opens on frame 108.",
       "source": {
         "run": "green",
         "video": "subsampled_step60.mp4",
@@ -696,7 +696,8 @@
         "n_dead_pixels": 263378,
         "frame_ms": 650,
         "last_frame_ms": 2600,
-        "total_ms": 14950
+        "total_ms": 14950,
+        "loop_opens_on": 6
       }
     },
     {

@@ -541,7 +541,8 @@ TIMELINE_GREEN = (30, 39, 108, 200, 300, 380, 400)   # frames of the green run (
 # reference frame, 380 just before the collapse, 400 after, 440 end) and an even fill.
 GIF_FRAMES = (22, 30, 39, 50, 60, 80, 108, 130, 150, 175, 200, 225, 250, 275, 300, 330, 360, 380, 400, 440)
 GIF_HEIGHT = 620           # height (px) of every GIF frame (the specimen, the A map and the profile alike)
-GIF_FRAME_MS = 650         # display time of a GIF frame; the last one stays 4x longer (20 frames -> 15 s)
+GIF_OPEN_FRAME = 108       # the README animation opens on this frame (foam up), not on the empty cylinder
+GIF_FRAME_MS = 650        # display time of a GIF frame; the last one stays 4x longer (20 frames -> 15 s)
 GIF_MAX_BYTES = 6_000_000
 GIF_ABS_VMAX = 1.75        # fixed scale of the A(x, y) colours and of the A(z) axis, every frame alike
 # Pixel layout of the combined frame (a white matplotlib figure at GIF_DPI, built from the panel
@@ -715,14 +716,21 @@ def gif_durations(n: int) -> list[int]:
 
 
 def write_gif(m: Manifest, name: str, frames_bgr: Sequence[np.ndarray], description: str,
-              source: dict[str, Any], *, max_bytes: int = GIF_MAX_BYTES) -> Path:
-    """Write ``frames_bgr`` (padded to one size) as a looping GIF under the size limit; register it."""
+              source: dict[str, Any], *, max_bytes: int = GIF_MAX_BYTES, first: int = 0) -> Path:
+    """Write ``frames_bgr`` (padded to one size) as a looping GIF under the size limit; register it.
+
+    ``first`` rotates the loop so that it opens on ``frames_bgr[first]``; the order of the loop is
+    unchanged, and the long hold stays on the chronologically last frame.
+    """
     import imageio.v3 as iio
 
     w = max(f.shape[1] for f in frames_bgr)
     h = max(f.shape[0] for f in frames_bgr)
     frames = [_pad_to(f, w, h) for f in frames_bgr]
     durations = gif_durations(len(frames))
+    first = first % len(frames)
+    frames = frames[first:] + frames[:first]
+    durations = durations[first:] + durations[:first]
     out = m.out_dir / name
     rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in frames]
     scale = 1.0
@@ -740,8 +748,8 @@ def write_gif(m: Manifest, name: str, frames_bgr: Sequence[np.ndarray], descript
         "bytes": len(data),
         "frames": len(frames),
         "description": description,
-        "source": source | {"frame_ms": GIF_FRAME_MS, "last_frame_ms": durations[-1],
-                            "total_ms": int(sum(durations))},
+        "source": source | {"frame_ms": GIF_FRAME_MS, "last_frame_ms": max(durations),
+                            "total_ms": int(sum(durations)), "loop_opens_on": first},
     }
     print(f"  {out.name:<34s} {int(w * scale):>5d} x {int(h * scale):<5d} {len(data) / 1e6:5.2f} MB  "
           f"({len(frames)} frames, {sum(durations) / 1000:.1f} s)")
@@ -941,7 +949,8 @@ def fig_timeline_absorbance(g: RunCtx, b: RunCtx | None, m: Manifest, **_: Any) 
               f"(inferno, fixed scale 0..{GIF_ABS_VMAX}, mL axis), radial profile A(z) with the threshold "
               "A_max / k, the liquid/foam row (red, gradient detector) and the foam top by threshold (teal), the "
               f"shaded foam integral, drawn by the panel blocks of absorbance_measurement.png; {GIF_FRAME_MS} ms "
-              "per frame, the last one held 4x longer.", src)
+              f"per frame, the last one held 4x longer; the loop opens on frame {GIF_OPEN_FRAME}.", src,
+              first=next((i for i, d in enumerate(meta) if d["frame"] == GIF_OPEN_FRAME), 0))
     write_gif(m, "detection_timeline.gif", det_frames, detection_gif_description(len(det_frames)),
               source_of(g, None, frames=[{k: v for k, v in d.items() if k != "absorbance"} for d in meta]))
 
