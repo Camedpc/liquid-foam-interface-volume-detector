@@ -4,7 +4,7 @@
 
 <p align="center"><img src="docs/images/detection_absorbance_timeline.gif" width="100%"></p>
 
-*Twenty frames of the green-screen run, from the pour to after the foam collapse (times from the start of the pour): the detected frame with its readout, the effective absorbance map $A(x, y)$ of the same rows against the empty cylinder, and the radial profile $A(z)$ with the threshold $A_\text{max}/5$ that sets the foam top.*
+*Twenty frames of the green-screen run, from the pour to after the foam collapse (times from the start of the pour): the detected frame with its readout, the effective absorbance map $A(x, y)$ of the same rows against the empty cylinder, and the radial profile $A(z)$ with the threshold $A_\text{max}/5$ that sets the foam top. The loop opens at t = 172 s, foam up, runs through the collapse, then back to the empty cylinder and the pour.*
 
 <p align="center"><img src="docs/images/hero.png" width="100%"></p>
 
